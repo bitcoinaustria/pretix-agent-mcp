@@ -334,6 +334,11 @@ These are pretix API limits, not workarounds waiting to happen:
   because it never passes through the agent's context. Change those in the UI.
 - **Question options** are not editable via PATCH on a question; recreate the question,
   or edit choices in the UI.
+- **Amounts take at most two decimal places** and must be decimal strings — a float is
+  refused rather than rounded, because a rounded price is a rounding bug charged to a
+  customer. Currencies with three decimal places (KWD, BHD, TND) are therefore not
+  supported; widen `PRICE_RE` in [validate.py](pretix_agent_mcp/validate.py) if you
+  need one.
 - **Checking someone in** is deliberately not a tool: scanning tickets is a
   physical-presence operation.
 - Organizer-level team and token management is out of scope by design — agents must not

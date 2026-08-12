@@ -19,7 +19,7 @@ from typing import Any
 
 from ..redact import mask_email
 from ..registry import App, tool
-from ..validate import ValidationError, object_id, order_code, page_size
+from ..validate import ValidationError, object_id, order_code, page_size, price
 from ._shared import clean, i18n, listing, pick
 
 # pretix order states. There is no "refunded" state — refunds are separate objects on
@@ -368,7 +368,9 @@ async def _cancel_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
     )
 
 
-@tool("write:high-risk", preview=lambda app, kwargs: _cancel_preview(app, kwargs))
+@tool(
+    "write:high-risk", preview=lambda app, kwargs: _cancel_preview(app, kwargs), money=("cancellation_fee",)
+)
 async def cancel_order(
     app: App,
     event: str,
@@ -414,7 +416,7 @@ async def _refund_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
     )
 
 
-@tool("write:high-risk", preview=lambda app, kwargs: _refund_preview(app, kwargs))
+@tool("write:high-risk", preview=lambda app, kwargs: _refund_preview(app, kwargs), money=("amount",))
 async def refund_order(
     app: App,
     event: str,
@@ -533,14 +535,17 @@ def _money(value: object) -> Decimal:
 
 
 def _amount(value: object, *, field: str) -> str:
-    """Validate an agent-supplied money value. This one must not be forgiving."""
-    try:
-        amount = Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        raise ValidationError(f"invalid {field}: {value!r} is not a decimal amount") from None
-    if not amount.is_finite() or amount < 0:
+    """Validate an agent-supplied money value. This one must not be forgiving.
+
+    Refuses rather than rounds: ``"0.001"`` used to become ``"0.00"``, which is a refund of
+    nothing recorded as a refund of something.
+    """
+    amount = price(value, field=field)
+    if amount is None:
+        raise ValidationError(f"{field} is required")
+    if Decimal(amount) < 0:
         raise ValidationError(f"{field} must be a non-negative amount, got {value!r}")
-    return _str(amount)
+    return _str(Decimal(amount))
 
 
 def _str(amount: Decimal) -> str:

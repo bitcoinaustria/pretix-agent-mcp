@@ -39,6 +39,7 @@ async def test_list_quotas(api, call):
 |---|---|
 | `validate.py` | [test_validate.py](tests/test_validate.py) — including what is now *rejected* |
 | `redact.py` | [test_redact.py](tests/test_redact.py) — a leak test asserting the raw value is absent from `repr()` of the whole result |
+| anything that carries an amount | [test_money.py](tests/test_money.py) — add the new call site there, not a local price test |
 | `registry.py`, capability classes | [test_capabilities.py](tests/test_capabilities.py) |
 | the approval flow, `pending.py`, `cli.py` | [test_approval.py](tests/test_approval.py) |
 | `server.py`, auth, transport | [test_transport.py](tests/test_transport.py) — speaks the real wire protocol against the real ASGI app |

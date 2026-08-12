@@ -13,14 +13,12 @@ on quotas, not on products, so a product is sold out when every quota covering i
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ..registry import App, tool
 from ..validate import ValidationError, object_id, page_size
 from ._shared import clean, i18n, listing, pick
 
-PRICE_RE = re.compile(r"^-?[0-9]{1,10}(\.[0-9]{1,2})?$")
 # https://docs.pretix.eu/dev/api/resources/questions.html — answer type codes.
 QUESTION_TYPES = ("N", "S", "T", "B", "C", "M", "F", "D", "H", "W", "CC", "TEL")
 CHOICE_TYPES = ("C", "M")
@@ -199,7 +197,7 @@ async def list_questions(app: App, event: str, limit: int = 50) -> dict:
 # -------------------------------------------------------------------------- write
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("default_price",))
 async def create_product(
     app: App,
     event: str,
@@ -225,7 +223,7 @@ async def create_product(
     payload = clean(
         {
             "name": name,
-            "default_price": _price(default_price),
+            "default_price": default_price,
             "category": _opt_id(category, "category"),
             "tax_rule": _opt_id(tax_rule, "tax_rule"),
             "active": active,
@@ -241,7 +239,7 @@ async def create_product(
     return {"created": _item(created, VARIATION_SUMMARY, *ITEM_DETAIL)}
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("default_price",))
 async def update_product(
     app: App,
     event: str,
@@ -266,7 +264,7 @@ async def update_product(
     payload = clean(
         {
             "name": name,
-            "default_price": _price(default_price),
+            "default_price": default_price,
             "category": _opt_id(category, "category"),
             "tax_rule": _opt_id(tax_rule, "tax_rule"),
             "active": active,
@@ -285,7 +283,7 @@ async def update_product(
     return {"updated": _item(updated, VARIATION_SUMMARY, *ITEM_DETAIL), "changed": sorted(payload)}
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("default_price",))
 async def create_product_variation(
     app: App,
     event: str,
@@ -307,7 +305,7 @@ async def create_product_variation(
     payload = clean(
         {
             "value": value,
-            "default_price": _price(default_price),
+            "default_price": default_price,
             "active": active,
             "description": description,
             "position": position,
@@ -320,7 +318,7 @@ async def create_product_variation(
     return {"created": pick(created, *VARIATION_DETAIL)}
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("default_price",))
 async def update_product_variation(
     app: App,
     event: str,
@@ -342,7 +340,7 @@ async def update_product_variation(
     payload = clean(
         {
             "value": value,
-            "default_price": _price(default_price),
+            "default_price": default_price,
             "active": active,
             "description": description,
             "position": position,
@@ -691,17 +689,6 @@ def _subevent_filter(subevent: int | None) -> dict[str, Any]:
 def _require(payload: dict[str, Any]) -> None:
     if not payload:
         raise ValidationError("nothing to update: pass at least one field")
-
-
-def _price(value: object, *, field: str = "price") -> str | None:
-    """Prices are decimal strings in pretix. A float would silently re-round the amount."""
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValidationError(f"{field} must be a decimal string like '23.00', not {type(value).__name__}")
-    if not PRICE_RE.match(value.strip()):
-        raise ValidationError(f"invalid {field}: {value!r} — expected a decimal string like '23.00'")
-    return value.strip()
 
 
 def _size(value: object) -> int | None:

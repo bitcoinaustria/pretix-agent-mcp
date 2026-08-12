@@ -74,8 +74,15 @@ it before adding one. The parts that bite:
 - **`preview=` coroutines run before approval, so they must only read.** They also run
   against un-normalized arguments if called outside `run_tool`, so validate the slug there
   too.
-- Prices are decimal strings (`"23.00"`). Reject floats rather than rounding them — a
-  float price is a rounding bug waiting to be charged to a customer. Sum with `Decimal`.
+- **Declare every parameter holding an amount in `money=`** — `@tool("write",
+  money=("default_price",))`. The registry validates those through `validate.price()`
+  *before* the propose/execute branch, which is the point: a high-risk or live-escalated
+  call never reaches its body until a human approved it, so an amount validated in the body
+  would be refused after the ceremony instead of before it. `price()` refuses floats rather
+  than rounding them (a float price is a rounding bug waiting to be charged to a customer),
+  along with `nan`, `inf` and a third decimal place. Never parse money in a tool;
+  `test_money.py` fails the build on a `float()` in `tools/` or an undeclared amount. Sum
+  with `Decimal`.
 - pretix i18n fields arrive as `{"en": ..., "de": ...}`; flatten with `i18n()`.
 
 ## Capability classes

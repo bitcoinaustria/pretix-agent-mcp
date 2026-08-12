@@ -11,6 +11,8 @@ Everything a tool must not forget happens here instead of in each tool:
 
 * the tool is only advertised if its capability class is enabled in config,
 * an ``event`` argument is checked against the event allowlist,
+* every parameter the tool declares in ``money=`` is validated — before the approval
+  branch below, because a queued call does not run its body until a human approved it,
 * a ``write`` against a **live** event is escalated to ``write:high-risk``
   (the live-event guard) when the tool declares ``live_guard=True``,
 * a ``write:high-risk`` call mutates nothing: it records a pending action and
@@ -32,7 +34,7 @@ from .config import Config
 from .pending import ApprovalError, PendingStore
 from .pretix import Pretix, PretixError
 from .redact import redact, redact_args
-from .validate import ValidationError, slug
+from .validate import ValidationError, price, prices, slug
 
 CAPABILITIES = ("read", "write", "write:high-risk")
 
@@ -68,6 +70,10 @@ class ToolSpec:
     live_guard: bool = False
     preview: PreviewFn | None = None
     title: str | None = None
+    # Parameters holding an amount. Validated here rather than in the tool body, because a
+    # high-risk or escalated call never reaches its body until after a human approved it —
+    # an unparseable price must be refused before it is queued, not after the ceremony.
+    money: tuple[str, ...] = ()
 
     @property
     def description(self) -> str:
@@ -97,11 +103,15 @@ def tool(
     name: str | None = None,
     title: str | None = None,
     preview: PreviewFn | None = None,
+    money: tuple[str, ...] = (),
 ) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
     if capability not in CAPABILITIES:
         raise ValueError(f"unknown capability {capability!r}")
 
     def decorator(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        parameters = set(inspect.signature(fn).parameters)
+        if unknown := sorted(set(money) - parameters):
+            raise ValueError(f"{fn.__name__} declares money={unknown} it does not take")
         spec = ToolSpec(
             name=name or fn.__name__,
             fn=fn,
@@ -109,6 +119,7 @@ def tool(
             live_guard=live_guard,
             preview=preview,
             title=title,
+            money=money,
         )
         if spec.name in REGISTRY:
             raise ValueError(f"duplicate tool {spec.name!r}")
@@ -143,6 +154,14 @@ async def run_tool(app: App, spec: ToolSpec, kwargs: dict[str, Any]) -> dict[str
     event_slug = kwargs.get("event")
     if event_slug is not None:
         kwargs["event"] = app.check_event(event_slug)
+
+    for field in spec.money:
+        if kwargs.get(field) is not None:
+            kwargs[field] = (
+                prices(kwargs[field], field=field)
+                if isinstance(kwargs[field], dict)
+                else price(kwargs[field], field=field)
+            )
 
     if capability == "write" and spec.live_guard and kwargs.get("event"):
         event = await app.event(kwargs["event"])

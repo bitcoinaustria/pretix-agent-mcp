@@ -84,7 +84,7 @@ async def get_subevent(app: App, event: str, subevent_id: int) -> dict:
     return pick(subevent, *SUBEVENT_DETAIL)
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("item_prices",))
 async def create_subevents(
     app: App,
     event: str,
@@ -123,10 +123,7 @@ async def create_subevents(
         if not quota_items:
             raise ValidationError("quota_items is required when quota_size is given")
     items = [object_id(item, field="quota_items") for item in quota_items or []]
-    overrides = [
-        {"item": object_id(item, field="item_prices key"), "price": str(price)}
-        for item, price in (item_prices or {}).items()
-    ]
+    overrides = _overrides(item_prices)
 
     slug = app.check_event(event)
     created: list[dict[str, Any]] = []
@@ -181,7 +178,7 @@ async def create_subevents(
     return {"status": "ok", "created": created, "created_count": len(created)}
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("item_prices",))
 async def update_subevent(
     app: App,
     event: str,
@@ -216,10 +213,7 @@ async def update_subevent(
         }
     )
     if item_prices is not None:
-        payload["item_price_overrides"] = [
-            {"item": object_id(item, field="item_prices key"), "price": str(price)}
-            for item, price in item_prices.items()
-        ]
+        payload["item_price_overrides"] = _overrides(item_prices)
     if not payload:
         raise ValidationError("nothing to update: pass at least one field")
     updated = await app.pretix.patch(
@@ -260,6 +254,15 @@ async def delete_subevent(app: App, event: str, subevent_id: int) -> dict:
         "events", app.check_event(event), "subevents", str(object_id(subevent_id, field="subevent_id"))
     )
     return {"deleted": subevent_id}
+
+
+def _overrides(item_prices: dict[str, str] | None) -> list[dict[str, Any]]:
+    """Per-date price overrides, in pretix's shape. The amounts arrived validated: the
+    registry checks every parameter a tool declares in ``money=`` before the body runs."""
+    return [
+        {"item": object_id(item, field="item_prices key"), "price": amount}
+        for item, amount in (item_prices or {}).items()
+    ]
 
 
 async def _count(app: App, slug: str, resource: str, subevent_id: int) -> int | None:

@@ -9,10 +9,11 @@ deleting a voucher is high-risk (it is the one voucher operation that destroys h
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from ..registry import App, tool
-from ..validate import ValidationError, object_id, page_size
+from ..validate import ValidationError, object_id, page_size, price
 from ._shared import clean, listing, pick
 
 PRICE_MODES = ("none", "set", "subtract", "percent")
@@ -69,7 +70,7 @@ async def list_vouchers(
     return listing([pick(v, *VOUCHER_FIELDS) for v in vouchers], total=total, truncated=truncated)
 
 
-@tool("write")
+@tool("write", money=("value",))
 async def create_voucher(
     app: App,
     event: str,
@@ -114,7 +115,7 @@ async def create_voucher(
 
 # A single voucher is an ordinary write; a bulk batch on a live event can give away or
 # freeze hundreds of seats at once, which is exactly what the live-event guard is for.
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("value",))
 async def create_vouchers_batch(
     app: App,
     event: str,
@@ -255,18 +256,15 @@ def _price_mode(value: object) -> str:
 
 
 def _value(value: object, price_mode: str) -> str:
-    """pretix wants a decimal string. 'none' ignores it, the other modes must have a number."""
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        value = f"{value:.2f}"
-    if not isinstance(value, str) or not value.strip():
+    """The sign rule for a voucher value. The amount itself arrived validated — the registry
+    checks it before the body runs, so that a batch against a live event is refused *before*
+    it is queued for approval rather than after a human granted it."""
+    amount = price(value, field="value")
+    if amount is None:
         raise ValidationError("value must be a decimal string like '12.00'")
-    try:
-        float(value)
-    except ValueError:
-        raise ValidationError(f"value is not a number: {value!r}") from None
-    if price_mode != "none" and float(value) < 0:
+    if price_mode != "none" and Decimal(amount) < 0:
         raise ValidationError(f"value must not be negative: {value!r}")
-    return value.strip()
+    return amount
 
 
 def _valid_until(value: object) -> str:

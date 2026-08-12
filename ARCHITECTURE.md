@@ -58,6 +58,11 @@ pending action's state in SQLite, and a later `execute_pending_action` call clai
   `attendee_email` and passes through if it is called `price`. A bare `name` is treated as
   an object label unless the record also carries personal fields — masking every event and
   product name made results useless.
+- **Amounts are validated before the approval ceremony, not inside the tool.** A tool
+  declares its priced parameters in `money=(...)` and the registry checks them in the same
+  place it normalizes `event`. The reason is the ordering: a high-risk or live-escalated
+  call is queued and returns a preview *without running its body*, so an amount validated in
+  the body would be refused only after a human had approved it.
 - **Approval state is a server-minted handle passed as an ordinary tool argument.** That is
   the pattern the stateless 2026-07-28 protocol prescribes (SEP-2567), and it happens to be
   exactly what the security model needs: the agent can carry the handle but cannot approve

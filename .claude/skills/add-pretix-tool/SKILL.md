@@ -53,7 +53,10 @@ async def list_quotas(app: App, event: str, limit: int = 50) -> dict:
   PATCH only touches what the agent named, `listing()` gives lists a uniform shape.
 - Reject an empty update (`if not payload: raise ValidationError(...)`) rather than sending
   a no-op PATCH.
-- Prices are decimal strings (`"23.00"`); accept `str`, reject floats, sum with `Decimal`.
+- Prices are decimal strings (`"23.00"`). Annotate the parameter `str` **and** list it in
+  the decorator's `money=(...)` — the registry validates declared amounts through
+  `validate.price()` before a high-risk call is queued for approval, which a tool body
+  cannot do because it does not run until after the approval. Sum with `Decimal`.
 
 ## 3. Shape the output
 

@@ -99,6 +99,7 @@ These carry tests, and changes to them need tests in the same PR — see
 | Area | Code | Tests |
 |---|---|---|
 | Input validation (no arbitrary REST access) | `pretix_agent_mcp/validate.py` | `tests/test_validate.py`, `tests/test_no_arbitrary_access.py` |
+| Money validation (one validator, applied by the registry before approval) | `pretix_agent_mcp/validate.py`, `registry.py` | `tests/test_money.py` |
 | PII redaction | `pretix_agent_mcp/redact.py` | `tests/test_redact.py` |
 | Capability gate, live-event guard | `pretix_agent_mcp/registry.py` | `tests/test_capabilities.py` |
 | Approval ceremony | `pretix_agent_mcp/pending.py`, `cli.py` | `tests/test_approval.py` |

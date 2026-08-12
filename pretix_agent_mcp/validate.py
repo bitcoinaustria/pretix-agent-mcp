@@ -69,6 +69,40 @@ def path_segments(*segments: str) -> str:
     return "/".join(segments)
 
 
+# Money is a decimal string with at most two places, everywhere pretix takes an amount.
+PRICE_RE = re.compile(r"^-?[0-9]{1,10}(\.[0-9]{1,2})?$")
+
+
+def price(value: object, *, field: str = "price") -> str | None:
+    """Validate an agent-supplied money value. ``None`` passes through unchanged.
+
+    The one money validator in this codebase — every price, amount, fee, tax rate and
+    voucher value goes through it, applied by the registry to the parameters a tool
+    declares in ``money=``. It refuses floats instead of rounding them (a float price is a
+    rounding bug waiting to be charged to a customer), which is also what keeps ``nan``,
+    ``inf``, ``1e5`` and a third decimal place out of a pretix payload.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError(f"{field} must be a decimal string like '23.00', not {type(value).__name__}")
+    if not PRICE_RE.match(value.strip()):
+        raise ValidationError(f"invalid {field}: {value!r} — expected a decimal string like '23.00'")
+    return value.strip()
+
+
+def prices(value: object, *, field: str) -> dict[str, str]:
+    """A mapping of object id to price, as the per-date price overrides take."""
+    if not isinstance(value, dict):
+        raise ValidationError(f"{field} must be a mapping of product id to price")
+    out = {}
+    for key, amount in value.items():
+        if amount is None:
+            raise ValidationError(f"{field}[{key}] must be a price, not null")
+        out[key] = price(amount, field=f"{field}[{key}]")
+    return out
+
+
 def page_size(value: object, *, default: int = 50, cap: int = 50) -> int:
     if value is None:
         return default

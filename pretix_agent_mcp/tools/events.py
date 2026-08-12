@@ -262,7 +262,7 @@ async def list_tax_rules(app: App, event: str) -> dict:
     )
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("rate",))
 async def create_tax_rule(
     app: App,
     event: str,
@@ -280,7 +280,7 @@ async def create_tax_rule(
     return {"created": pick(created, "id", "name", "rate", "price_includes_tax")}
 
 
-@tool("write", live_guard=True)
+@tool("write", live_guard=True, money=("rate",))
 async def update_tax_rule(
     app: App,
     event: str,

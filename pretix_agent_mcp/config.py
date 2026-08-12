@@ -32,10 +32,13 @@ class Config:
     event_allowlist: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=lambda: ["read"])
     tool_allowlist: list[str] = field(default_factory=list)
+    # High-risk tools the operator reclassified to plain `write` (no approval ceremony).
+    auto_approve: list[str] = field(default_factory=list)
     pii_mode: str = "redacted"
     mcp_bearer_token: str | None = None
     host: str = "127.0.0.1"
     port: int = 8765
+    log_level: str = "info"
     audit_log: Path = Path("audit.jsonl")
     state_db: Path = Path("pending-actions.sqlite3")
     approval_ttl_seconds: int = 900
@@ -122,10 +125,12 @@ def load(env: dict[str, str] | None = None, config_file: str | Path | None = Non
         event_allowlist=get_list("PRETIX_EVENT_ALLOWLIST"),
         capabilities=capabilities,
         tool_allowlist=get_list("MCP_TOOL_ALLOWLIST"),
+        auto_approve=get_list("MCP_AUTO_APPROVE"),
         pii_mode=pii_mode,
         mcp_bearer_token=get("MCP_BEARER_TOKEN"),
         host=get("MCP_HOST") or "127.0.0.1",
         port=int(get("MCP_PORT") or 8765),
+        log_level=(get("LOG_LEVEL") or "info").lower(),
         audit_log=Path(get("AUDIT_LOG") or "audit.jsonl"),
         state_db=Path(get("STATE_DB") or "pending-actions.sqlite3"),
         approval_ttl_seconds=int(get("APPROVAL_TTL_SECONDS") or 900),

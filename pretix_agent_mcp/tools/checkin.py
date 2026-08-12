@@ -222,7 +222,10 @@ def _attendee(position: dict[str, Any]) -> dict[str, Any]:
 
 async def _delete_list_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
     list_id = _list_id(kwargs["checkin_list_id"])
-    summary = pick(await app.pretix.get("events", kwargs["event"], "checkinlists", list_id), *CHECKIN_LIST)
+    summary = pick(
+        await app.pretix.get("events", app.check_event(kwargs["event"]), "checkinlists", list_id),
+        *CHECKIN_LIST,
+    )
     return (
         f"DELETE check-in list {summary.get('id')} ('{summary.get('name')}') of event "
         f"{kwargs['event']} — {summary.get('checkin_count')} of {summary.get('position_count')} "

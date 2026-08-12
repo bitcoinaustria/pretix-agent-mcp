@@ -112,7 +112,9 @@ async def create_voucher(
     return {"created": pick(created, *VOUCHER_FIELDS)}
 
 
-@tool("write")
+# A single voucher is an ordinary write; a bulk batch on a live event can give away or
+# freeze hundreds of seats at once, which is exactly what the live-event guard is for.
+@tool("write", live_guard=True)
 async def create_vouchers_batch(
     app: App,
     event: str,
@@ -146,7 +148,11 @@ async def create_vouchers_batch(
         if len(set(wanted)) != len(wanted):
             raise ValidationError("codes contains duplicates; pretix rejects the whole batch")
     else:
-        wanted = [None] * object_id(count, field="count")
+        # Check the cap *before* building the list: a huge count must be refused, not allocated.
+        requested = object_id(count, field="count")
+        if requested > MAX_BATCH:
+            raise ValidationError(f"too many vouchers: {requested} (max {MAX_BATCH} per call)")
+        wanted = [None] * requested
     if len(wanted) > MAX_BATCH:
         raise ValidationError(f"too many vouchers: {len(wanted)} (max {MAX_BATCH} per call)")
 

@@ -7,6 +7,8 @@ import pytest
 from pretix_agent_mcp import tools  # noqa: F401  — importing the package registers the tools
 from pretix_agent_mcp.validate import ValidationError
 
+DRAFT = {"slug": "conf27", "name": {"en": "Conf 27"}, "live": False, "testmode": True}
+
 
 async def test_list_vouchers(api, call):
     api.page(
@@ -58,6 +60,7 @@ async def test_create_voucher(api, call):
 
 
 async def test_create_vouchers_batch_lets_pretix_generate_codes(api, call):
+    api.route("GET", "events/conf27", DRAFT)  # the batch tool is live-guarded
     api.route(
         "POST",
         "events/conf27/vouchers/batch_create",
@@ -83,12 +86,14 @@ async def test_create_vouchers_batch_lets_pretix_generate_codes(api, call):
 
 
 async def test_create_vouchers_batch_with_explicit_codes(api, call):
+    api.route("GET", "events/conf27", DRAFT)  # the batch tool is live-guarded
     api.route("POST", "events/conf27/vouchers/batch_create", [{"id": 1, "code": "SPONSOR-ACME"}], status=201)
     await call("create_vouchers_batch", event="conf27", codes=["SPONSOR-ACME"], quota=8)
     assert api.sent("POST", "events/conf27/vouchers/batch_create")[0][0]["code"] == "SPONSOR-ACME"
 
 
 async def test_voucher_input_is_validated_before_anything_is_sent(api, call):
+    api.route("GET", "events/conf27", DRAFT)  # the batch tool checks the event first
     with pytest.raises(ValidationError):  # not a pretix price mode
         await call("create_voucher", event="conf27", item=3, price_mode="half_off", value="5.00")
     with pytest.raises(ValidationError):  # valid_until must be an ISO 8601 string
@@ -113,3 +118,10 @@ async def test_delete_voucher_needs_approval_and_shows_redemptions(api, call):
     assert result["status"] == "awaiting_approval"
     assert "redeemed 1 of 1 usages" in result["preview"]
     assert api.sent("DELETE", "events/conf27/vouchers/5") == []
+
+
+async def test_a_huge_batch_is_refused_before_anything_is_allocated(api, call):
+    api.route("GET", "events/conf27", DRAFT)
+    with pytest.raises(ValidationError, match="too many vouchers"):
+        await call("create_vouchers_batch", event="conf27", item=3, count=10**9)
+    assert api.sent("POST", "events/conf27/vouchers/batch_create") == []

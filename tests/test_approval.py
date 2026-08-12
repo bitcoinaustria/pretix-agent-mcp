@@ -56,7 +56,7 @@ async def test_full_ceremony(app, api, monkeypatch):
     result = await call(app, "execute_pending_action", pending_action_id=action_id)
 
     assert result["published"]["slug"] == "conf27"
-    assert api.sent("PATCH", "events/conf27") == [{"live": True}]
+    assert api.sent("PATCH", "events/conf27") == [{"live": True, "testmode": False}]
     assert app.pending.get(action_id).state == "executed"
 
 
@@ -131,7 +131,7 @@ async def test_operator_can_reclassify_a_high_risk_tool(make_app, api):
     api.route("PATCH", "events/conf27", {**DRAFT, "live": True})
     result = await call(app, "publish_event", event="conf27")
     assert result["published"]["slug"] == "conf27"
-    assert api.sent("PATCH", "events/conf27") == [{"live": True}]
+    assert api.sent("PATCH", "events/conf27") == [{"live": True, "testmode": False}]
 
 
 async def test_lifecycle_is_audited(app, api, monkeypatch):

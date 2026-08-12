@@ -577,7 +577,10 @@ async def update_question(
 
 async def _delete_product_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
     item = await app.pretix.get(
-        "events", kwargs["event"], "items", str(object_id(kwargs.get("item_id"), field="item_id"))
+        "events",
+        app.check_event(kwargs["event"]),
+        "items",
+        str(object_id(kwargs.get("item_id"), field="item_id")),
     )
     summary = _item(item, VARIATION_SUMMARY)
     variations = summary.get("variations") or []
@@ -593,7 +596,7 @@ async def _delete_product_preview(app: App, kwargs: dict[str, Any]) -> tuple[str
 async def _delete_quota_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
     quota = await app.pretix.get(
         "events",
-        kwargs["event"],
+        app.check_event(kwargs["event"]),
         "quotas",
         str(object_id(kwargs.get("quota_id"), field="quota_id")),
         params={"with_availability": "true"},
@@ -669,7 +672,9 @@ def _question(question: dict[str, Any]) -> dict[str, Any]:
     shaped = pick(question, *QUESTION_FIELDS)
     if "options" in question:
         shaped["options"] = [
-            {"id": o.get("id"), "identifier": o.get("identifier"), "answer": i18n(o.get("answer"))}
+            # pretix calls the choice label `answer`; renamed here because the redactor
+            # treats `answer` as customer free text and would mask every option.
+            {"id": o.get("id"), "identifier": o.get("identifier"), "label": i18n(o.get("answer"))}
             for o in question["options"] or []
         ]
     return shaped

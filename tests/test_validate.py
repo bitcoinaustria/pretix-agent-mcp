@@ -84,3 +84,12 @@ def test_page_size_is_capped():
     assert page_size(5000) == 50
     with pytest.raises(ValidationError):
         page_size(0)
+
+
+def test_object_id_is_bounded_above():
+    """An unbounded count is an allocation weapon: create_vouchers_batch(count=10**9)."""
+    from pretix_agent_mcp.validate import MAX_ID
+
+    assert object_id(MAX_ID) == MAX_ID
+    with pytest.raises(ValidationError):
+        object_id(MAX_ID + 1)

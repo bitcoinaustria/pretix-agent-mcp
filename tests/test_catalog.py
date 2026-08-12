@@ -147,7 +147,8 @@ async def test_list_questions_flattens_options(api, run):
     )
     result = await run("list_questions", event="conf27")
     assert result["results"][0]["question"] == "T-shirt size"
-    assert result["results"][0]["options"] == [{"id": 5, "identifier": "s", "answer": "S"}]
+    # `label`, not pretix's `answer` — the redactor treats `answer` as customer free text.
+    assert result["results"][0]["options"] == [{"id": 5, "identifier": "s", "label": "S"}]
 
 
 async def test_list_categories(api, run):

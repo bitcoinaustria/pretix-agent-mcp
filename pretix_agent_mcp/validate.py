@@ -35,6 +35,11 @@ def order_code(value: object, *, field: str = "order code") -> str:
     return upper
 
 
+# No pretix resource id — and no batch size worth honouring — comes near this. An upper
+# bound keeps an agent-supplied count from being used to allocate its way to a crash.
+MAX_ID = 2**31 - 1
+
+
 def object_id(value: object, *, field: str = "id") -> int:
     """Positive integer resource IDs only. Rejects bools, floats and numeric strings
     with any decoration (whitespace, signs, unicode digits)."""
@@ -46,7 +51,7 @@ def object_id(value: object, *, field: str = "id") -> int:
         ivalue = int(value)
     else:
         raise ValidationError(f"invalid {field}: {value!r}")
-    if ivalue < 1:
+    if not 1 <= ivalue <= MAX_ID:
         raise ValidationError(f"invalid {field}: {value!r}")
     return ivalue
 

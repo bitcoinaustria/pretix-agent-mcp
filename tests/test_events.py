@@ -87,3 +87,43 @@ async def test_tax_rule_crud(api, call):
     api.route("POST", "events/conf27/taxrules", {"id": 1, "name": "20% VAT", "rate": "20.00"})
     result = await call("create_tax_rule", event="conf27", name="20% VAT", rate="20.00")
     assert result["created"]["rate"] == "20.00"
+
+
+async def test_publish_leaves_test_mode(api, call):
+    """live=true alone still makes test orders; leaving test mode is what makes them real,
+    so publish_event does both — and it is the only tool that can."""
+    import inspect
+
+    from pretix_agent_mcp.registry import REGISTRY
+
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27", {**DRAFT, "live": True, "testmode": False})
+    proposal = await call("publish_event", event="conf27")
+    assert proposal["status"] == "awaiting_approval"
+
+    for name, spec in REGISTRY.items():
+        if name == "publish_event":
+            continue
+        parameters = inspect.signature(spec.fn, eval_str=True).parameters
+        assert "testmode" not in parameters, f"{name} could leave test mode without approval"
+
+
+async def test_mail_routing_settings_are_refused(api, call):
+    """An agent that can set mail_bcc copies every customer mail off-box, and redaction
+    would never see it — the data never enters the agent's context."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27/settings", {})
+    for key in ("mail_bcc", "mail_from", "mail_reply_to", "smtp_host", "mail_bcc_extra"):
+        with pytest.raises(ValidationError, match="mail routing"):
+            await call("update_event_settings", event="conf27", settings={key: "attacker@example.net"})
+    assert api.sent("PATCH", "events/conf27/settings") == []
+
+
+async def test_settings_without_keys_returns_names_only(api, call):
+    """The full settings object is tens of kilobytes of mail templates per language."""
+    api.route(
+        "GET", "events/conf27/settings", {"waiting_list_enabled": True, "mail_text_order_free": "x" * 5000}
+    )
+    result = await call("get_event_settings", event="conf27")
+    assert result["available_keys"] == ["mail_text_order_free", "waiting_list_enabled"]
+    assert "settings" not in result

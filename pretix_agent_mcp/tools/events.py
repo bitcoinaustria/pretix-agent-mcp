@@ -55,14 +55,19 @@ async def get_event(app: App, event: str) -> dict:
 async def get_event_settings(app: App, event: str, keys: list[str] | None = None) -> dict:
     """Read event settings (mail texts, presale behaviour, waiting list, ...).
 
-    The settings object is large; pass ``keys`` to fetch only the settings you need.
+    Call it without ``keys`` to get the available setting names, then again with the
+    handful you actually need. The full settings object holds every mail template in
+    every configured language — tens of kilobytes — so values are only returned for
+    the keys you name.
     """
     settings = await app.pretix.get("events", app.check_event(event), "settings")
     if not isinstance(settings, dict):
         return {"settings": settings}
-    if keys:
-        return {"settings": {key: i18n(settings.get(key)) for key in keys}}
-    return {"settings": {key: i18n(value) for key, value in settings.items()}}
+    if not keys:
+        return {"available_keys": sorted(settings), "note": "call again with keys=[...] to read values"}
+    if len(keys) > 50:
+        raise ValidationError("ask for at most 50 setting keys per call")
+    return {"settings": {key: i18n(settings.get(key)) for key in keys}}
 
 
 @tool("write")
@@ -155,12 +160,11 @@ async def update_event(
     presale_end: str | None = None,
     location: str | None = None,
     is_public: bool | None = None,
-    testmode: bool | None = None,
 ) -> dict:
-    """Change an event's name, dates, presale window, location or test mode.
+    """Change an event's name, dates, presale window or location.
 
-    Only the fields you pass are changed. This tool cannot take an event live — that is
-    publish_event, which is always approved out of band.
+    Only the fields you pass are changed. This tool cannot take an event live and cannot
+    leave test mode — both happen in publish_event, which is always approved out of band.
     """
     payload = clean(
         {
@@ -172,7 +176,6 @@ async def update_event(
             "presale_end": presale_end,
             "location": location,
             "is_public": is_public,
-            "testmode": testmode,
         }
     )
     if not payload:
@@ -186,10 +189,20 @@ async def update_event_settings(app: App, event: str, settings: dict[str, Any]) 
     """Change event settings: mail texts, confirmation texts, waiting-list behaviour, ...
 
     Pass a mapping of pretix setting names to values; read them first with
-    get_event_settings. Settings the pretix API does not expose stay UI-only.
+    get_event_settings. Mail routing (where mail is sent from, copied to, or relayed
+    through) is refused here and stays a UI task. Settings the pretix API does not expose
+    stay UI-only too.
     """
     if not settings:
         raise ValidationError("settings must not be empty")
+    if blocked := sorted(key for key in settings if _routes_mail(str(key))):
+        # A prompt-injected agent that can set mail_bcc copies every customer mail
+        # off-box, and no amount of redaction downstream would see it: the data never
+        # enters the agent's context. So this is refused outright rather than escalated.
+        raise ValidationError(
+            f"refusing to change mail routing settings: {', '.join(blocked)}. "
+            "Change these in the pretix web UI."
+        )
     updated = await app.pretix.patch("events", app.check_event(event), "settings", json=settings)
     keys = sorted(settings)
     current = updated if isinstance(updated, dict) else {}
@@ -211,11 +224,13 @@ async def set_event_plugins(app: App, event: str, plugins: list[str]) -> dict:
 
 @tool("write:high-risk", preview=lambda app, kwargs: _publish_preview(app, kwargs))
 async def publish_event(app: App, event: str) -> dict:
-    """Take an event live: its shop opens and it can sell tickets to the public.
+    """Take an event live: its shop opens and it sells real tickets to the public.
 
-    Always requires out-of-band approval — this is the boundary crossing itself.
+    This also leaves test mode, because that — not the live flag alone — is what makes
+    orders real. Always requires out-of-band approval: it is the boundary crossing itself,
+    and it is the only way an event stops being a test event.
     """
-    updated = await app.pretix.patch("events", app.check_event(event), json={"live": True})
+    updated = await app.pretix.patch("events", app.check_event(event), json={"live": True, "testmode": False})
     return {"published": pick(updated, *EVENT_SUMMARY), "url": _frontend_url(app, event)}
 
 
@@ -295,6 +310,15 @@ async def delete_tax_rule(app: App, event: str, tax_rule_id: int) -> dict:
         "events", app.check_event(event), "taxrules", str(object_id(tax_rule_id, field="tax_rule_id"))
     )
     return {"deleted": tax_rule_id}
+
+
+# Settings that decide where customer mail goes or which server sends it. Changing any of
+# them redirects or copies mail containing personal data, so they are not agent-writable.
+MAIL_ROUTING_SETTINGS = {"mail_bcc", "mail_from", "mail_from_name", "mail_reply_to"}
+
+
+def _routes_mail(key: str) -> bool:
+    return key in MAIL_ROUTING_SETTINGS or key.startswith(("smtp_", "mail_from", "mail_bcc", "mail_reply"))
 
 
 def _frontend_url(app: App, event_slug: str) -> str:

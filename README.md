@@ -141,8 +141,12 @@ unlisted tools are never advertised to the client.
 availability, product structure or existing orders is escalated to `write:high-risk` at
 call time. The same operation on a draft or test-mode event executes directly. So agents
 build and reconfigure drafts without friction, while anything touching a selling event or
-a customer's money goes through approval. `publish_event` is always high-risk — it is the
-boundary crossing itself.
+a customer's money goes through approval.
+
+`publish_event` is always high-risk — it is the boundary crossing itself. It sets
+`live=true` **and** leaves test mode, because test mode, not the live flag, is what keeps
+orders from being real. No other tool can leave test mode, so an agent cannot start real
+sales without an approval.
 
 An operator who accepts the risk can reclassify individual high-risk tools to plain
 `write` with `MCP_AUTO_APPROVE` (e.g. auto-approve `publish_event`, keep the gate on
@@ -179,11 +183,14 @@ agent and a shell command on the server is not.
 | Series dates | `list_subevents`, `get_subevent` | `create_subevents`¹, `update_subevent`¹ | `delete_subevent` |
 | Catalog | `list_products`, `get_product`, `list_quotas`, `get_availability`, `list_categories`, `list_questions` | `create_product`¹, `update_product`¹, `create_product_variation`¹, `update_product_variation`¹, `create_category`¹, `update_category`¹, `create_quota`¹, `update_quota`¹, `create_question`¹, `update_question`¹ | `delete_product`, `delete_quota`, `delete_category`, `delete_question` |
 | Orders | `search_orders`, `get_order`, `search_attendees`, `sales_summary` | `mark_order_paid`¹, `extend_payment_deadline`¹, `add_order_comment`, `edit_attendee`¹, `resend_order_email` | `cancel_order`, `refund_order` |
-| Vouchers | `list_vouchers` | `create_voucher`, `create_vouchers_batch` | `delete_voucher` |
+| Vouchers | `list_vouchers` | `create_voucher`, `create_vouchers_batch`¹ | `delete_voucher` |
 | Check-in & waiting list | `list_checkin_lists`, `list_checkins`, `list_waiting_list` | `create_checkin_list`, `update_checkin_list`, `send_waiting_list_voucher` | `delete_checkin_list` |
 | Approval | `get_pending_action` | `execute_pending_action` | — |
 
-¹ subject to the live-event guard.
+¹ subject to the live-event guard. A single voucher is an ordinary write; a bulk batch is
+guarded, because 500 free or quota-blocking vouchers against a selling event is a price and
+availability change in all but name (a documented tightening of the PRD, which classed all
+voucher tools as plain `write`).
 
 Notes:
 
@@ -275,6 +282,10 @@ These are pretix API limits, not workarounds waiting to happen:
   handle. One-time UI task.
 - **Event settings** expose the subset the pretix settings API exposes. Where the UI has
   more, the tools have less.
+- **Mail routing settings** (`mail_bcc`, `mail_from`, `mail_reply_to`, `smtp_*`) are
+  refused by `update_event_settings` on purpose: an agent that can BCC every customer mail
+  to an address of its choosing exfiltrates personal data that redaction never sees,
+  because it never passes through the agent's context. Change those in the UI.
 - **Question options** are not editable via PATCH on a question; recreate the question,
   or edit choices in the UI.
 - **Checking someone in** is deliberately not a tool: scanning tickets is a

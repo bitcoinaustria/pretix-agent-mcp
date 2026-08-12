@@ -342,13 +342,15 @@ These are pretix API limits, not workarounds waiting to happen:
 ## Development
 
 ```bash
-uv pip install -e ".[dev]"
-pytest -q
-ruff check .
+make setup
+make ci      # ruff check + format check + pytest, the same thing CI runs
 ```
 
-No test talks to a real pretix instance: `tests/conftest.py` provides a fake API that
-asserts every request stays inside the configured organizer's namespace.
+- [AGENTS.md](AGENTS.md) — the working rules (and what Claude, Codex and friends load)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — where the seams are and why
+- [TESTING.md](TESTING.md) — the fake-pretix harness and what a change owes in tests
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to open a PR
+- [PRD.md](PRD.md) — the product spec this was built from
 
 MIT licensed. Contributions welcome — changes to validation, redaction, the approval gate
 or auth need tests.

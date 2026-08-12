@@ -18,7 +18,6 @@ from typing import Any
 # the last path element. pretix uses these across orders, positions, invoices and
 # waiting-list entries.
 NAME_KEYS = {
-    "name",
     "attendee_name",
     "full_name",
     "given_name",
@@ -44,8 +43,18 @@ FREETEXT_KEYS = {"comment", "checkin_text", "answer", "text", "message"}
 
 PII_KEYS = NAME_KEYS | EMAIL_KEYS | PHONE_KEYS | ADDRESS_KEYS | FREETEXT_KEYS
 
+# A bare `name` is usually an object label — an event, a product, a quota, a check-in
+# list — and masking those would make every result unreadable. It is a person's name
+# only inside a record that also carries personal fields, which is what PERSON_MARKERS
+# detects (a waiting-list entry, an invoice address).
+PERSON_MARKERS = {"email", "attendee_email", "name_parts", "attendee_name_parts", "attendee_name"}
+CONTEXTUAL_NAME_KEYS = {"name"}
+
 # `name_parts` is a dict of name components; mask every leaf inside it.
 CONTAINER_KEYS = {"name_parts", "attendee_name_parts", "invoice_address"}
+# Leaves inside those containers that identify nobody but answer real questions
+# (country for VAT/reverse-charge, the name scheme for form handling).
+SAFE_IN_CONTAINER = {"country", "is_business", "id", "scheme", "_scheme"}
 
 REDACTED = "***"
 
@@ -92,11 +101,17 @@ def redact(data: Any, *, enabled: bool = True, _key: str = "", _in_pii: bool = F
         return data
     if isinstance(data, dict):
         out: dict[str, Any] = {}
+        # A `name` next to an email or a name_parts block belongs to a person, not an object.
+        personal = _in_pii or bool(PERSON_MARKERS & {str(k).lower() for k in data})
         for key, value in data.items():
             lkey = key.lower() if isinstance(key, str) else str(key)
             inside = _in_pii or lkey in CONTAINER_KEYS
             if isinstance(value, (dict, list)):
                 out[key] = redact(value, enabled=True, _key=lkey, _in_pii=inside)
+            elif lkey in SAFE_IN_CONTAINER and lkey not in PII_KEYS:
+                out[key] = value
+            elif personal and lkey in CONTEXTUAL_NAME_KEYS:
+                out[key] = mask_name(value) if isinstance(value, str) else value
             elif inside or lkey in PII_KEYS:
                 out[key] = _mask_scalar(lkey if lkey in PII_KEYS else _pii_kind(lkey, value), value)
             else:

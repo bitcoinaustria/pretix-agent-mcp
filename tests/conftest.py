@@ -128,7 +128,8 @@ def call(app: App):
     """Call a tool the way the server does: through the registry gate."""
     from pretix_agent_mcp.registry import REGISTRY, run_tool
 
-    async def _call(name: str, **kwargs: Any) -> dict:
-        return await run_tool(app, REGISTRY[name], kwargs)
+    async def _call(tool_name: str, /, **kwargs: Any) -> dict:
+        """Positional-only, so a tool's own ``name`` parameter can be passed as a kwarg."""
+        return await run_tool(app, REGISTRY[tool_name], kwargs)
 
     return _call

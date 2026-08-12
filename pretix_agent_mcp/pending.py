@@ -112,47 +112,58 @@ class PendingStore:
         return [_row_to_action(row) for row in rows]
 
     def decide(self, action_id: str, state: str) -> PendingAction:
-        """Approve or reject a pending action. Only a live pending action can be decided."""
+        """Approve or reject a pending action. Only a live pending action can be decided.
+
+        The state change is one conditional UPDATE, so two concurrent approvals cannot
+        both win. Diagnosing *why* an update matched nothing happens afterwards, outside
+        the transaction — raising inside it would roll back the bookkeeping.
+        """
         if state not in {"approved", "rejected"}:
             raise ValueError("state must be 'approved' or 'rejected'")
+        now = time.time()
         with self._db() as db:
-            row = db.execute("SELECT * FROM pending_actions WHERE id = ?", (action_id,)).fetchone()
-            if row is None:
-                raise ApprovalError(f"no pending action {action_id!r}")
-            action = _row_to_action(row)
-            if action.state != "pending":
-                raise ApprovalError(f"action {action_id} is already {action.state}")
-            if time.time() > action.expires_at:
-                db.execute("UPDATE pending_actions SET state = 'expired' WHERE id = ?", (action_id,))
-                raise ApprovalError(f"action {action_id} expired")
-            db.execute(
-                "UPDATE pending_actions SET state = ?, decided_at = ? WHERE id = ?",
-                (state, time.time(), action_id),
-            )
-        return PendingAction(**{**action.__dict__, "state": state})
+            changed = db.execute(
+                "UPDATE pending_actions SET state = ?, decided_at = ?"
+                " WHERE id = ? AND state = 'pending' AND expires_at > ?",
+                (state, now, action_id, now),
+            ).rowcount
+        if changed:
+            action = self.get(action_id)
+            assert action is not None
+            return action
+        raise self._why_not(action_id, wanted="pending")
 
     def claim(self, action_id: str) -> PendingAction:
         """Atomically move an approved action to ``executing``, so it runs at most once."""
         with self._db() as db:
-            row = db.execute("SELECT * FROM pending_actions WHERE id = ?", (action_id,)).fetchone()
-            if row is None:
-                raise ApprovalError(f"no pending action {action_id!r}")
-            action = _row_to_action(row)
-            if action.state == "pending":
-                if time.time() > action.expires_at:
-                    db.execute("UPDATE pending_actions SET state = 'expired' WHERE id = ?", (action_id,))
-                    raise ApprovalError(f"action {action_id} expired before it was approved")
-                raise ApprovalError(
-                    f"action {action_id} is still awaiting approval — a human must run "
-                    f"`pretix-agent-mcp approve {action_id}` on the server"
-                )
-            if action.state != "approved":
-                raise ApprovalError(f"action {action_id} is {action.state}, not approved")
-            db.execute(
-                "UPDATE pending_actions SET state = 'executing', executed_at = ? WHERE id = ?",
+            changed = db.execute(
+                "UPDATE pending_actions SET state = 'executing', executed_at = ?"
+                " WHERE id = ? AND state = 'approved'",
                 (time.time(), action_id),
+            ).rowcount
+        if changed:
+            action = self.get(action_id)
+            assert action is not None
+            return action
+        raise self._why_not(action_id, wanted="approved")
+
+    def _why_not(self, action_id: str, *, wanted: str) -> ApprovalError:
+        action = self.get(action_id)
+        if action is None:
+            return ApprovalError(f"no pending action {action_id!r}")
+        if action.state == "pending" and time.time() > action.expires_at:
+            self._set_state(action_id, "expired")
+            return ApprovalError(f"action {action_id} expired")
+        if action.state == "pending" and wanted == "approved":
+            return ApprovalError(
+                f"action {action_id} is still awaiting approval — a human must run "
+                f"`pretix-agent-mcp approve {action_id}` on the server"
             )
-        return PendingAction(**{**action.__dict__, "state": "executing"})
+        return ApprovalError(f"action {action_id} is {action.state}, not {wanted}")
+
+    def _set_state(self, action_id: str, state: str) -> None:
+        with self._db() as db:
+            db.execute("UPDATE pending_actions SET state = ? WHERE id = ?", (state, action_id))
 
     def finish(self, action_id: str, outcome: str) -> None:
         with self._db() as db:

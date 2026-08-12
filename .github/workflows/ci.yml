@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q
+      - name: No secrets in the repo
+        run: |
+          # A real pretix token is 40+ chars; a real instance URL is not example.org.
+          ! grep -rInE '(Token [A-Za-z0-9]{20,})' --include='*.py' --include='*.md' --include='*.yml' . \
+            || (echo "possible credential committed"; exit 1)

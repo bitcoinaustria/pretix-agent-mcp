@@ -38,7 +38,9 @@ def clean(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
-def listing(items: list[Any], *, total: int | None = None, truncated: bool = False, **extra: Any) -> dict[str, Any]:
+def listing(
+    items: list[Any], *, total: int | None = None, truncated: bool = False, **extra: Any
+) -> dict[str, Any]:
     """Uniform shape for list results, so counts and truncation are never implicit."""
     result: dict[str, Any] = {"count": len(items), "results": items}
     if total is not None:

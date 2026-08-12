@@ -163,7 +163,9 @@ async def execute_approved(app: App, action_id: str) -> dict[str, Any]:
         app.pending.finish(action_id, "failed")
         raise ApprovalError(f"tool {action.tool!r} no longer exists")
     try:
-        result = await _execute(app, spec, dict(action.args), capability="write:high-risk", action_id=action_id)
+        result = await _execute(
+            app, spec, dict(action.args), capability="write:high-risk", action_id=action_id
+        )
     except Exception:
         app.pending.finish(action_id, "failed")
         raise
@@ -222,9 +224,12 @@ async def _execute(
                 error=str(exc),
             )
         raise
-    if capability != "read":
-        app.audit.write("executed", tool=spec.name, args=kwargs, outcome="ok", pending_action_id=action_id)
     payload = result if isinstance(result, dict) else {"result": result}
+    if capability != "read":
+        # A tool that partially succeeded says so in its own result (a batch that failed
+        # halfway returns what it created); the audit record must not flatten that to "ok".
+        outcome = payload.get("status") if isinstance(payload.get("status"), str) else "ok"
+        app.audit.write("executed", tool=spec.name, args=kwargs, outcome=outcome, pending_action_id=action_id)
     return redact(payload, enabled=app.cfg.redact_pii)
 
 

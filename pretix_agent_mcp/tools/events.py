@@ -279,7 +279,11 @@ async def update_tax_rule(
     if not payload:
         raise ValidationError("nothing to update: pass at least one field")
     updated = await app.pretix.patch(
-        "events", app.check_event(event), "taxrules", str(object_id(tax_rule_id, field="tax_rule_id")), json=payload
+        "events",
+        app.check_event(event),
+        "taxrules",
+        str(object_id(tax_rule_id, field="tax_rule_id")),
+        json=payload,
     )
     return {"updated": pick(updated, "id", "name", "rate", "price_includes_tax")}
 

@@ -80,7 +80,8 @@ class PendingStore:
         )
         with self._db() as db:
             db.execute(
-                "INSERT INTO pending_actions (id, tool, args, preview, snapshot, state, created_at, expires_at)"
+                "INSERT INTO pending_actions"
+                " (id, tool, args, preview, snapshot, state, created_at, expires_at)"
                 " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     action.id,

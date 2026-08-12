@@ -32,7 +32,9 @@ def main(argv: list[str] | None = None) -> int:
 
     approve = sub.add_parser("approve", help="approve a pending high-risk action")
     approve.add_argument("id")
-    approve.add_argument("--run", action="store_true", help="execute it immediately instead of waiting for the agent")
+    approve.add_argument(
+        "--run", action="store_true", help="execute it immediately instead of waiting for the agent"
+    )
 
     reject = sub.add_parser("reject", help="reject a pending high-risk action")
     reject.add_argument("id")
@@ -104,7 +106,9 @@ def _tools(cfg: Config) -> int:
 def _approve(cfg: Config, action_id: str, *, run: bool) -> int:
     app = build_app(cfg)
     action = app.pending.decide(action_id, "approved")
-    app.audit.write("approved", tool=action.tool, args=action.args, pending_action_id=action.id, outcome="approved")
+    app.audit.write(
+        "approved", tool=action.tool, args=action.args, pending_action_id=action.id, outcome="approved"
+    )
     print(f"approved {action.id} ({action.tool})")
     if not run:
         print("the agent can now call execute_pending_action with this id")

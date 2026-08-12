@@ -174,14 +174,7 @@ async def list_waiting_list(
     entries, total, truncated = await app.pretix.paginate(
         "events", app.check_event(event), "waitinglistentries", params=params, cap=page_size(limit)
     )
-    return listing(
-        [
-            pick(e, "id", "created", "email", "item", "variation", "subevent") | {"voucher_sent": bool(e.get("voucher"))}
-            for e in entries
-        ],
-        total=total,
-        truncated=truncated,
-    )
+    return listing([_waiting_entry(e) for e in entries], total=total, truncated=truncated)
 
 
 @tool("write")
@@ -212,6 +205,11 @@ def _item_ids(values: list[int] | None) -> list[int] | None:
     return [object_id(v, field="limit_products item id") for v in values]
 
 
+def _waiting_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    fields = pick(entry, "id", "created", "email", "item", "variation", "subevent")
+    return fields | {"voucher_sent": bool(entry.get("voucher"))}
+
+
 def _attendee(position: dict[str, Any]) -> dict[str, Any]:
     checkins = position.get("checkins") or []
     last = max(checkins, key=lambda c: c.get("datetime") or "") if checkins else None
@@ -223,8 +221,8 @@ def _attendee(position: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _delete_list_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
-    detail = await app.pretix.get("events", kwargs["event"], "checkinlists", _list_id(kwargs["checkin_list_id"]))
-    summary = pick(detail, *CHECKIN_LIST)
+    list_id = _list_id(kwargs["checkin_list_id"])
+    summary = pick(await app.pretix.get("events", kwargs["event"], "checkinlists", list_id), *CHECKIN_LIST)
     return (
         f"DELETE check-in list {summary.get('id')} ('{summary.get('name')}') of event "
         f"{kwargs['event']} — {summary.get('checkin_count')} of {summary.get('position_count')} "

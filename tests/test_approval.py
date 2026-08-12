@@ -92,7 +92,9 @@ async def test_expired_action_is_refused(make_app, api):
 
 async def test_the_agent_cannot_approve_anything():
     """There is no tool that writes approval state — by construction, not by convention."""
-    approving = [name for name, spec in REGISTRY.items() if "approve" in name and name != "execute_pending_action"]
+    approving = [
+        name for name, spec in REGISTRY.items() if "approve" in name and name != "execute_pending_action"
+    ]
     assert approving == []
 
 

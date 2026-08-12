@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from pretix_agent_mcp import config
+from pretix_agent_mcp import tools as _tools  # noqa: F401  — registers every tool
 from pretix_agent_mcp.audit import Audit
 from pretix_agent_mcp.pending import PendingStore
 from pretix_agent_mcp.pretix import Pretix
@@ -52,7 +53,11 @@ class FakeAPI:
 
     def page(self, method: str, path: str, results: list[Any], count: int | None = None) -> None:
         """A single-page paginated listing response."""
-        self.route(method, path, {"count": count if count is not None else len(results), "next": None, "results": results})
+        self.route(
+            method,
+            path,
+            {"count": count if count is not None else len(results), "next": None, "results": results},
+        )
 
     def transport(self) -> httpx.MockTransport:
         def handle(request: httpx.Request) -> httpx.Response:
@@ -110,7 +115,9 @@ def make_app(api: FakeAPI, make_config) -> Callable[..., App]:
         cfg = make_config(**env)
         return App(
             cfg=cfg,
-            pretix=Pretix(cfg.pretix_base_url, cfg.pretix_api_token, cfg.organizer, transport=api.transport()),
+            pretix=Pretix(
+                cfg.pretix_base_url, cfg.pretix_api_token, cfg.organizer, transport=api.transport()
+            ),
             audit=Audit(cfg.audit_log),
             pending=PendingStore(cfg.state_db, cfg.approval_ttl_seconds),
         )

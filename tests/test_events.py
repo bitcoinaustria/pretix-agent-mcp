@@ -67,15 +67,17 @@ async def test_empty_update_is_rejected(api, call):
 
 async def test_update_event_cannot_take_an_event_live(api, call):
     """live=true is publish_event's job, and that is always approved out of band."""
-    from pretix_agent_mcp.registry import REGISTRY
-
     import inspect
+
+    from pretix_agent_mcp.registry import REGISTRY
 
     assert "live" not in inspect.signature(REGISTRY["update_event"].fn).parameters
 
 
 async def test_settings_can_be_fetched_selectively(api, call):
-    api.route("GET", "events/conf27/settings", {"waiting_list_enabled": True, "mail_text_order_free": {"en": "hi"}})
+    api.route(
+        "GET", "events/conf27/settings", {"waiting_list_enabled": True, "mail_text_order_free": {"en": "hi"}}
+    )
     result = await call("get_event_settings", event="conf27", keys=["waiting_list_enabled"])
     assert result["settings"] == {"waiting_list_enabled": True}
 

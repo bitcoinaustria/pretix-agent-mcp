@@ -26,7 +26,11 @@ ORDER = {
             "price": "42.00",
             "attendee_name": "Maria Kowalski",
             "attendee_email": "maria.kowalski@example.org",
-            "attendee_name_parts": {"given_name": "Maria", "family_name": "Kowalski", "_scheme": "given_family"},
+            "attendee_name_parts": {
+                "given_name": "Maria",
+                "family_name": "Kowalski",
+                "_scheme": "given_family",
+            },
             "answers": [{"question": 1, "answer": "vegetarian"}],
         }
     ],

@@ -53,7 +53,9 @@ async def test_a_disabled_tool_refuses_even_if_called_directly(make_app):
     """Belt and braces: the gate re-checks, so a stale client cannot call a hidden tool."""
     read_only = make_app(MCP_CAPABILITIES="read")
     with pytest.raises(PermissionError):
-        await run_tool(read_only, REGISTRY["create_event"], {"event": "x", "name": "X", "date_from": "2027-01-01"})
+        await run_tool(
+            read_only, REGISTRY["create_event"], {"event": "x", "name": "X", "date_from": "2027-01-01"}
+        )
 
 
 async def test_event_allowlist_is_enforced(make_app, api):

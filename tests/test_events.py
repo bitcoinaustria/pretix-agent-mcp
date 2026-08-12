@@ -129,6 +129,68 @@ async def test_settings_without_keys_returns_names_only(api, call):
     assert "settings" not in result
 
 
+async def test_publish_preview_is_a_go_live_checklist(api, call):
+    """A real pretix refuses to take an event live when it has a paid product and no payment
+    provider — and that used to surface *after* a human approved the publish, spending the
+    one manual step in the system on a doomed action. The preview reports it instead."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.page("GET", "events/conf27/items", [{"id": 3, "name": {"en": "Ticket"}, "default_price": "42.00"}])
+    api.page("GET", "events/conf27/quotas", [{"id": 1, "name": "Seats", "size": 100}])
+
+    result = await call("publish_event", event="conf27")
+
+    assert result["status"] == "awaiting_approval"
+    preview = result["preview"]
+    assert "products: 1 (1 priced above zero)" in preview
+    assert "quotas:   1" in preview
+    assert "pretix refuses to go live unless a payment provider is enabled" in preview
+    # Never asserted as fact: pretix exposes core settings only, so a correctly configured
+    # bank transfer or Stripe is invisible here. Claiming "none" from that silence was a lie.
+    assert "providers enabled: none" not in preview
+    assert api.sent("PATCH", "events/conf27") == []
+
+
+async def test_publish_preview_warns_only_about_what_it_can_see(api, call):
+    """Missing products or quotas are facts the API does state, so those are WARNINGs. The
+    payment precondition is a NOTE, because this server cannot verify it either way."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.page("GET", "events/conf27/items", [])
+    api.page("GET", "events/conf27/quotas", [])
+
+    preview = (await call("publish_event", event="conf27"))["preview"]
+
+    assert "WARNING: no products" in preview
+    assert "WARNING: no quotas" in preview
+    assert "NOTE" not in preview, "no priced products, so the payment note is not due"
+
+
+async def test_a_free_event_needs_no_payment_provider(api, call):
+    """A meetup at 0.00 goes live with no provider configured, so no warning is due."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.page("GET", "events/conf27/items", [{"id": 3, "name": {"en": "Free"}, "default_price": "0.00"}])
+    api.page("GET", "events/conf27/quotas", [{"id": 1, "name": "Seats", "size": 40}])
+
+    preview = (await call("publish_event", event="conf27"))["preview"]
+
+    assert "products: 1 (0 priced above zero)" in preview
+    assert "WARNING" not in preview
+    assert "NOTE" not in preview, "a free event needs no payment provider"
+
+
+async def test_publish_preview_survives_what_it_cannot_read(api, call):
+    """The preview informs the operator; it must never be the reason a proposal fails. A
+    token that cannot read settings gets no payment line rather than a wrong 'none'."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("GET", "events/conf27/items", {"detail": "forbidden"}, status=403)
+    api.route("GET", "events/conf27/quotas", {"detail": "forbidden"}, status=403)
+
+    result = await call("publish_event", event="conf27")
+
+    assert result["status"] == "awaiting_approval"
+    assert "LIVE" in result["preview"]
+    assert "products:" not in result["preview"], "unknown is reported as absent, not as zero"
+
+
 async def test_payment_configuration_is_refused(api, call):
     """The mail_bcc argument, for money: an agent that can rewrite an IBAN or a provider's
     API key redirects every customer payment into an account it chose. Ordinary `write` on a

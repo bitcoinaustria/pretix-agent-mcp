@@ -8,8 +8,10 @@ The interesting part is the live boundary. Reconfiguring a draft event is fricti
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from ..pretix import PretixError
 from ..registry import App, tool
 from ..validate import ValidationError, object_id, page_size, slug
 from ._shared import clean, i18n, listing, pick
@@ -371,15 +373,84 @@ def _frontend_url(app: App, event_slug: str) -> str:
 
 
 async def _publish_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:
+    """The go-live checklist, so the ceremony is not spent on a doomed action.
+
+    pretix has preconditions for going live — it refuses an event that has a paid product
+    but no enabled payment provider, and an event with no product or no quota is live but
+    unsellable. Those failures used to surface *after* a human approved the publish, which
+    wastes the one manual step in the whole system. The facts are reported here instead;
+    pretix stays the authority on whether the transition is allowed.
+    """
     event = await app.event(kwargs["event"])
     summary = pick(event, *EVENT_SUMMARY)
-    return (
-        f"Take event '{summary.get('slug')}' ({summary.get('name')}) LIVE — the public shop opens.\n"
-        f"  starts:  {summary.get('date_from')}\n"
-        f"  presale: {summary.get('presale_start')} → {summary.get('presale_end')}\n"
+    readiness = await _go_live_readiness(app, kwargs["event"])
+    lines = [
+        f"Take event '{summary.get('slug')}' ({summary.get('name')}) LIVE — the public shop opens.",
+        f"  starts:  {summary.get('date_from')}",
+        f"  presale: {summary.get('presale_start')} → {summary.get('presale_end')}",
         f"  test mode: {summary.get('testmode')}",
-        summary,
-    )
+    ]
+    if readiness["products"] is not None:
+        lines.append(f"  products: {readiness['products']} ({readiness['paid_products']} priced above zero)")
+    if readiness["quotas"] is not None:
+        lines.append(f"  quotas:   {readiness['quotas']}")
+    lines += [f"  NOTE: {note}" for note in readiness["notes"]]
+    lines += [f"  WARNING: {warning}" for warning in readiness["warnings"]]
+    return "\n".join(lines), summary | {"readiness": readiness}
+
+
+async def _go_live_readiness(app: App, event_slug: str) -> dict[str, Any]:
+    """Read-only facts about whether this event can actually sell anything.
+
+    Every lookup is optional. A fact this cannot read is reported as unknown rather than
+    raised: the preview exists to inform the operator, and it must never be the reason a
+    proposal fails. pretix remains the authority on the transition itself.
+
+    Deliberately absent: whether a payment provider is enabled. The settings endpoint
+    exposes core settings only, so every provider that matters — bank transfer, Stripe,
+    BTCPay — is invisible through the API even when correctly configured. Reporting
+    "providers: none" from that silence was a confident lie that fired on every properly
+    set up event, which is worse than saying nothing: it teaches the operator to skim past
+    the one line in the preview that is there to stop them.
+    """
+    items = await _maybe_list(app, event_slug, "items")
+    quotas = await _maybe_list(app, event_slug, "quotas")
+    paid = [i for i in items if _priced_above_zero(i)] if items is not None else []
+
+    warnings, notes = [], []
+    if items is not None and not items:
+        warnings.append("no products: the shop would open with nothing to sell")
+    if quotas is not None and not quotas:
+        warnings.append("no quotas: nothing is available even with products defined")
+    if paid:
+        notes.append(
+            f"{len(paid)} product(s) cost money. pretix refuses to go live unless a payment "
+            "provider is enabled, and that setting is neither visible through its API nor "
+            "agent-writable — if this event has never sold, confirm one is set up in the "
+            "pretix UI before approving."
+        )
+    return {
+        "products": None if items is None else len(items),
+        "paid_products": len(paid),
+        "quotas": None if quotas is None else len(quotas),
+        "notes": notes,
+        "warnings": warnings,
+    }
+
+
+async def _maybe_list(app: App, event_slug: str, resource: str) -> list[dict[str, Any]] | None:
+    try:
+        found, _, _ = await app.pretix.paginate("events", event_slug, resource, cap=200)
+    except PretixError:
+        return None
+    return found
+
+
+def _priced_above_zero(item: dict[str, Any]) -> bool:
+    try:
+        return Decimal(str(item.get("default_price") or "0")) > 0
+    except (InvalidOperation, ValueError):  # pragma: no cover - pretix always sends a decimal
+        return False
 
 
 async def _delete_event_preview(app: App, kwargs: dict[str, Any]) -> tuple[str, Any]:

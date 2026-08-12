@@ -139,13 +139,25 @@ Create a **team** in pretix (Organizer → Teams) with only the permissions your
 capabilities need, then add a token to that team. Never use a team that can change teams
 and permissions.
 
-| You enable | pretix team permissions needed |
-|---|---|
-| `read` | *Can view orders*, *Can view vouchers*, plus access to the relevant events |
-| `write` (catalog, events, settings) | + *Can create events*, *Can change event settings*, *Can change product settings* |
-| `write` (vouchers) | + *Can change vouchers* |
-| `write` (orders: mark paid, comment, resend, edit attendee) | + *Can change orders* |
-| `write:high-risk` (cancel, refund, delete) | + *Can change orders* / *Can change event settings* |
+pretix 2026.x names permissions `group:action`; older versions show the same things as
+*Can view orders*-style checkboxes. Both are listed below — the identifiers are what a
+2026.x instance stores, verified against a local 2026.7.
+
+| You enable | pretix team permission | older label |
+|---|---|---|
+| `read` | `event.orders:read`, `event.vouchers:read` | *Can view orders*, *Can view vouchers* |
+| `write` (events, settings) | `organizer.events:create`, `event.settings.general:write` | *Can create events*, *Can change event settings* |
+| `write` (catalog) | `event.items:write`, `event.settings.tax:write` | *Can change product settings* |
+| `write` (series dates) | `event.subevents:write` | *Can change event settings* |
+| `write` (vouchers) | `event.vouchers:write` | *Can change vouchers* |
+| `write` (orders: mark paid, comment, resend, edit attendee) | `event.orders:write` | *Can change orders* |
+| `write` (check-in lists) | `event.orders:checkin` | *Can change orders* |
+| `write:high-risk` (cancel, refund, delete) | `event.orders:write`, `event:cancel` | *Can change orders* |
+
+Never grant `organizer.teams:write` (*Can change teams and permissions*) — that is the one
+permission that would let a prompt-injected agent widen its own access. Do not grant
+`event.settings.payment:write` either unless you accept an agent editing payment
+configuration; nothing in the tool surface needs it.
 
 Restrict the team to specific events where you can, and set `PRETIX_EVENT_ALLOWLIST` as a
 second, server-side limit.
@@ -342,6 +354,17 @@ These are pretix API limits, not workarounds waiting to happen:
   because it never passes through the agent's context. Change those in the UI.
 - **Question options** are not editable via PATCH on a question; recreate the question,
   or edit choices in the UI.
+- **Payment is configured once, by you, at organizer level.** pretix refuses `live=true`
+  while any product costs money and no payment provider is enabled. Set the provider up on
+  the *organizer* (its plugin, then its account details) and every event inherits it —
+  including the ones an agent creates later, so paid events publish without anyone opening
+  the web UI again. `publish_event`'s preview lists the products, priced products and quotas
+  it can see, plus a reminder about this precondition; it deliberately does **not** claim
+  which providers are enabled, because pretix's settings API exposes core settings only and
+  a correctly configured bank transfer or Stripe is invisible there. A free event (a meetup,
+  a stammtisch) needs none of this.
+- **`set_event_plugins` can only enable plugins the organizer already allows.** Allowing a
+  new plugin is an organizer-level operator task, deliberately outside the tool surface.
 - **Payment settings are not agent-writable, and that is enforced here rather than by
   pretix.** pretix has one coarse permission (`event.settings.payment:write`) covering
   payment deadlines and destination IBANs alike, so an operator who wants an agent to set a

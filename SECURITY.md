@@ -89,6 +89,11 @@ Out of scope — documented behaviour, not bugs:
   write the operator enabled with `MCP_AUTO_APPROVE`. Both are explicit, logged decisions.
 - Shell or Docker-socket access on the server being equivalent to approval rights — the
   out-of-band approval assumes the server is trusted.
+- **Volume abuse through a legitimately granted `write` capability** — an agent calling
+  `create_voucher` (or any ungated write) in a loop. Per-call classification cannot express
+  a rate limit, so granting `write` on a live event is a decision to trust the agent with
+  repetition; the audit log is the control that makes it reviewable. A *single* call that
+  reaches further than its tool intends is in scope.
 - Anything in a third-party dependency: report it upstream.
 
 ## Security-relevant code

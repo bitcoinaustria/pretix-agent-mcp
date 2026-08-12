@@ -215,6 +215,13 @@ guarded, because 500 free or quota-blocking vouchers against a selling event is 
 availability change in all but name (a documented tightening of the PRD, which classed all
 voucher tools as plain `write`).
 
+Be clear-eyed about what that guard is and is not: it makes the *bulk* path visible, and an
+agent that calls `create_voucher` in a loop reaches the same place without an approval. The
+guard is not a rate limit, and no per-call gate can be one. Granting `write` on a live event
+means trusting the agent with unlimited single vouchers; the audit log is what makes that
+reviewable afterwards. Deployments that do not want the trade-off keep the voucher tools out
+of `MCP_TOOL_ALLOWLIST`, or add `create_voucher` to a high-risk classification of their own.
+
 Notes:
 
 - `sales_summary` is computed server-side by paginating orders (pretix has no aggregate

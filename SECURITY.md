@@ -73,7 +73,11 @@ In scope — anything that:
 - lets an unauthenticated or wrongly-authenticated HTTP client get any data or tool list,
 - lets an agent widen its own permissions, or exfiltrate data through a channel redaction
   cannot see (the `mail_bcc` class of bug — mail routing settings are refused for exactly
-  this reason).
+  this reason),
+- lets an agent change where customer money goes — payment provider enablement, bank
+  details, a provider's API key. pretix's own permission for payment settings covers
+  deadlines and IBANs with one flag, so `update_event_settings` refuses the money-routing
+  subset itself; a way around that refusal is a finding.
 
 Out of scope — documented behaviour, not bugs:
 

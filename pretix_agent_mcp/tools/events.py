@@ -189,9 +189,11 @@ async def update_event_settings(app: App, event: str, settings: dict[str, Any]) 
     """Change event settings: mail texts, confirmation texts, waiting-list behaviour, ...
 
     Pass a mapping of pretix setting names to values; read them first with
-    get_event_settings. Mail routing (where mail is sent from, copied to, or relayed
-    through) is refused here and stays a UI task. Settings the pretix API does not expose
-    stay UI-only too.
+    get_event_settings. Two families are refused outright and stay UI tasks: mail routing
+    (where mail is sent from, copied to, or relayed through) and payment configuration
+    (which provider collects money, and into which account). Payment *terms* — deadlines,
+    the explanatory text — are allowed. Settings the pretix API does not expose stay
+    UI-only too.
     """
     if not settings:
         raise ValidationError("settings must not be empty")
@@ -202,6 +204,16 @@ async def update_event_settings(app: App, event: str, settings: dict[str, Any]) 
         raise ValidationError(
             f"refusing to change mail routing settings: {', '.join(blocked)}. "
             "Change these in the pretix web UI."
+        )
+    if blocked := sorted(key for key in settings if _routes_money(str(key))):
+        # The same argument, for money: an agent that can rewrite an IBAN or a payment
+        # provider's API key redirects every customer payment to an account it chose. No
+        # approval ceremony covers this either, because the tool is an ordinary `write` on
+        # a draft event — so it is refused outright rather than escalated.
+        raise ValidationError(
+            f"refusing to change payment configuration: {', '.join(blocked)}. "
+            "Where money goes is set up in the pretix web UI, not by an agent. "
+            "Payment terms (payment_term_*) are allowed here."
         )
     updated = await app.pretix.patch("events", app.check_event(event), "settings", json=settings)
     keys = sorted(settings)
@@ -319,6 +331,39 @@ MAIL_ROUTING_SETTINGS = {"mail_bcc", "mail_from", "mail_from_name", "mail_reply_
 
 def _routes_mail(key: str) -> bool:
     return key in MAIL_ROUTING_SETTINGS or key.startswith(("smtp_", "mail_from", "mail_bcc", "mail_reply"))
+
+
+# Payment settings decide *where customer money goes*: an IBAN, a Stripe secret, a BTCPay
+# API key. An agent that can edit them can redirect every payment to an account of its
+# choosing, which is the mail_bcc bug with money instead of personal data. So `payment_*`
+# is default-deny, with an allowlist for the keys that only express policy — a deadline or
+# an explanatory text moves nobody's money.
+PAYMENT_POLICY_SETTINGS = ("payment_term_", "payment_explanation", "payment_pending_hidden")
+# Substrings that mark a credential or an account, wherever they appear in a setting name.
+CREDENTIAL_MARKERS = (
+    "secret",
+    "api_key",
+    "apikey",
+    "password",
+    "passphrase",
+    "credential",
+    "private_key",
+    "access_token",
+    "auth_token",
+    "iban",
+    "bic",
+    "bank_details",
+    "account_id",
+    "merchant",
+    "webhook",
+)
+
+
+def _routes_money(key: str) -> bool:
+    lowered = key.lower()
+    if any(marker in lowered for marker in CREDENTIAL_MARKERS):
+        return True
+    return lowered.startswith("payment_") and not lowered.startswith(PAYMENT_POLICY_SETTINGS)
 
 
 def _frontend_url(app: App, event_slug: str) -> str:

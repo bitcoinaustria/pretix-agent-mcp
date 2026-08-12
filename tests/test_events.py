@@ -127,3 +127,52 @@ async def test_settings_without_keys_returns_names_only(api, call):
     result = await call("get_event_settings", event="conf27")
     assert result["available_keys"] == ["mail_text_order_free", "waiting_list_enabled"]
     assert "settings" not in result
+
+
+async def test_payment_configuration_is_refused(api, call):
+    """The mail_bcc argument, for money: an agent that can rewrite an IBAN or a provider's
+    API key redirects every customer payment into an account it chose. Ordinary `write` on a
+    draft event, so no approval covers it — it has to be refused outright."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27/settings", {})
+    for key in (
+        "payment_banktransfer__enabled",
+        "payment_banktransfer_bank_details_sepa_iban",
+        "payment_banktransfer_bank_details",
+        "payment_stripe_secret_key",
+        "payment_stripe_publishable_key",
+        "payment_paypal_merchant_id",
+        "payment_btcpay_api_key",
+        "payment_btcpay_url",
+    ):
+        with pytest.raises(ValidationError, match="payment configuration"):
+            await call("update_event_settings", event="conf27", settings={key: "attacker-controlled"})
+    assert api.sent("PATCH", "events/conf27/settings") == []
+
+
+async def test_a_credential_shaped_setting_is_refused_whatever_it_is_called(api, call):
+    """Third-party payment plugins invent their own setting names, so the credential check
+    is on the shape of the name rather than a list of known providers."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27/settings", {})
+    for key in ("some_plugin_api_key", "acme_webhook_secret", "gateway_private_key", "x_access_token"):
+        with pytest.raises(ValidationError, match="payment configuration"):
+            await call("update_event_settings", event="conf27", settings={key: "nope"})
+    assert api.sent("PATCH", "events/conf27/settings") == []
+
+
+async def test_payment_terms_are_still_agent_writable(api, call):
+    """A deadline moves nobody's money, and setting one is ordinary event administration."""
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27/settings", {"payment_term_days": 14, "payment_explanation": "Bank"})
+
+    result = await call(
+        "update_event_settings",
+        event="conf27",
+        settings={"payment_term_days": 14, "payment_explanation": "Bank"},
+    )
+
+    assert result["changed"] == ["payment_explanation", "payment_term_days"]
+    assert api.sent("PATCH", "events/conf27/settings") == [
+        {"payment_term_days": 14, "payment_explanation": "Bank"}
+    ]

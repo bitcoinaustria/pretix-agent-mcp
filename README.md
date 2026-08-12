@@ -33,6 +33,7 @@ provider onboarding, which involves credentials an agent must never touch.
 |---|---|
 | Prompt-injected agent exfiltrating personal data | `PII_MODE=redacted` by default: names, emails, addresses and phone numbers are masked in every result, and email addresses are scrubbed from pretix error bodies before they reach the agent. A deployment decision, never a tool parameter. |
 | Prompt-injected agent issuing destructive writes | Irreversible operations return a preview and a handle. A human approves them **out of band** on the server. A `confirm: true` parameter would just be set by the attacker. |
+| Prompt-injected agent redirecting money or mail | `update_event_settings` refuses payment routing (provider enablement, bank details, API keys) and mail routing (`mail_bcc`, `smtp_*`) outright. Neither is escalated to approval, because neither belongs to an agent at all — and pretix's own permission for payment settings is too coarse to make the distinction. |
 | Agent reaching beyond its remit | Capability allowlist; disabled tools are not advertised at all. The organizer slug is pinned in config. Every path segment is validated. **There is no generic HTTP/API tool.** |
 | Unauthorized network client | Bearer token required, constant-time compared. Binds `127.0.0.1` by default; refuses a non-localhost bind without a token. |
 | Credential theft | The pretix token lives only in the server's environment — never in results, errors, logs, audit records or tool parameters. |
@@ -341,6 +342,14 @@ These are pretix API limits, not workarounds waiting to happen:
   because it never passes through the agent's context. Change those in the UI.
 - **Question options** are not editable via PATCH on a question; recreate the question,
   or edit choices in the UI.
+- **Payment settings are not agent-writable, and that is enforced here rather than by
+  pretix.** pretix has one coarse permission (`event.settings.payment:write`) covering
+  payment deadlines and destination IBANs alike, so an operator who wants an agent to set a
+  deadline would otherwise have to grant it the ability to redirect every payment.
+  `update_event_settings` refuses the money-routing subset — provider enablement, bank
+  details, anything whose name looks like a credential or an account — while letting
+  `payment_term_*` through. Third-party providers (BTCPay, Stripe, PayPal) need no special
+  handling: the refusal is keyed on the shape of the setting name, not a list of providers.
 - **Amounts take at most two decimal places** and must be decimal strings — a float is
   refused rather than rounded, because a rounded price is a rounding bug charged to a
   customer. Currencies with three decimal places (KWD, BHD, TND) are therefore not

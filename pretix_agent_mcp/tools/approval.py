@@ -11,7 +11,9 @@ from ..validate import ValidationError
 
 
 def _action_id(value: object) -> str:
-    if not isinstance(value, str) or not value.isalnum() or not 4 <= len(value) <= 32:
+    # isascii() as well as isalnum(): the latter is true for Arabic-Indic and fullwidth
+    # digits too, and an id is always the hex this server minted.
+    if not isinstance(value, str) or not (value.isascii() and value.isalnum()) or not 4 <= len(value) <= 32:
         raise ValidationError(f"invalid pending_action_id: {value!r}")
     return value
 

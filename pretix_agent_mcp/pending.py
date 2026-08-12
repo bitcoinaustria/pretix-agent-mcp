@@ -69,7 +69,9 @@ class PendingStore:
     def propose(self, tool: str, args: dict[str, Any], preview: str, snapshot: Any = None) -> PendingAction:
         now = time.time()
         action = PendingAction(
-            id=secrets.token_hex(4),
+            # 64 bits: the id is handed to the agent, so it need not be unguessable, but a
+            # birthday collision on a TEXT PRIMARY KEY would surface as an INSERT error.
+            id=secrets.token_hex(8),
             tool=tool,
             args=args,
             preview=preview,

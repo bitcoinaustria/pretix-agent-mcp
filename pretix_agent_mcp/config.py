@@ -13,8 +13,6 @@ from pathlib import Path
 
 CAPABILITIES = ("read", "write", "write:high-risk")
 
-_TRUE = {"1", "true", "yes", "on"}
-
 
 class ConfigError(RuntimeError):
     pass
@@ -42,8 +40,6 @@ class Config:
     audit_log: Path = Path("audit.jsonl")
     state_db: Path = Path("pending-actions.sqlite3")
     approval_ttl_seconds: int = 900
-    approvals_web: bool = False
-    approvals_web_token: str | None = None
     scan_cap: int = 5000
 
     @property
@@ -134,8 +130,6 @@ def load(env: dict[str, str] | None = None, config_file: str | Path | None = Non
         audit_log=Path(get("AUDIT_LOG") or "audit.jsonl"),
         state_db=Path(get("STATE_DB") or "pending-actions.sqlite3"),
         approval_ttl_seconds=int(get("APPROVAL_TTL_SECONDS") or 900),
-        approvals_web=(get("APPROVALS_WEB") or "").lower() in _TRUE,
-        approvals_web_token=get("APPROVALS_WEB_TOKEN"),
         scan_cap=int(get("SALES_SCAN_CAP") or 5000),
     )
     # Validate the pinned organizer with the same rules agent input gets.
@@ -162,5 +156,3 @@ def check_http_bind(cfg: Config) -> None:
         raise ConfigError("MCP_BEARER_TOKEN is required for the HTTP transport")
     if len(cfg.mcp_bearer_token) < 24:
         raise ConfigError("MCP_BEARER_TOKEN must be at least 24 characters")
-    if cfg.approvals_web and not cfg.approvals_web_token:
-        raise ConfigError("APPROVALS_WEB requires APPROVALS_WEB_TOKEN")

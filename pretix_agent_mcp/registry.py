@@ -32,7 +32,7 @@ from typing import Any
 from .audit import Audit
 from .config import Config
 from .pending import ApprovalError, PendingStore
-from .pretix import Pretix, PretixError
+from .pretix import Pretix
 from .redact import redact, redact_args, scrub_text
 from .validate import ValidationError, price, prices, slug
 
@@ -181,6 +181,19 @@ async def execute_approved(app: App, action_id: str) -> dict[str, Any]:
     if spec is None:  # pragma: no cover - only reachable across versions
         app.pending.finish(action_id, "failed")
         raise ApprovalError(f"tool {action.tool!r} no longer exists")
+    # An approval authorises one action under the configuration that was in force. If the
+    # operator has since withdrawn the capability — the panic move, `MCP_CAPABILITIES=read` —
+    # the stale approval must not be a way back in.
+    if not app.cfg.tool_enabled(spec.name, static_capability(spec, app.cfg)):
+        app.pending.finish(action_id, "failed")
+        app.audit.write(
+            "failed",
+            tool=spec.name,
+            args=dict(action.args),
+            outcome="tool_disabled",
+            pending_action_id=action_id,
+        )
+        raise ApprovalError(f"tool {spec.name} is no longer enabled on this server")
     try:
         result = await _execute(
             app, spec, dict(action.args), capability="write:high-risk", action_id=action_id
@@ -232,7 +245,9 @@ async def _execute(
 ) -> dict[str, Any]:
     try:
         result = await spec.fn(app, **kwargs)
-    except (ValidationError, PretixError, ApprovalError, PermissionError) as exc:
+    except Exception as exc:
+        # Every exception, not just the expected four: a write that failed for a reason we
+        # did not anticipate is exactly the one an operator needs to find in the log later.
         if capability != "read":
             app.audit.write(
                 "failed",

@@ -150,6 +150,53 @@ async def test_lifecycle_is_audited(app, api, monkeypatch):
     assert app.cfg.mcp_bearer_token not in log
 
 
+async def test_an_approval_does_not_outlive_the_capability_that_allowed_it(make_app, api):
+    """An approval authorises one action under the configuration in force at the time. The
+    operator's panic move is to withdraw the capability; a stale approval must not be a way
+    back in, and `execute_pending_action` stays enabled under plain `write`."""
+    app = make_app()
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27", {**DRAFT, "live": True})
+    action_id = (await call(app, "publish_event", event="conf27"))["pending_action_id"]
+    app.pending.decide(action_id, "approved")
+
+    locked = make_app(MCP_CAPABILITIES="read,write")  # high-risk withdrawn, writes still on
+    with pytest.raises(ApprovalError, match="no longer enabled"):
+        await call(locked, "execute_pending_action", pending_action_id=action_id)
+
+    assert api.sent("PATCH", "events/conf27") == []
+    assert '"tool_disabled"' in locked.cfg.audit_log.read_text()
+
+
+async def test_a_tool_dropped_from_the_allowlist_cannot_be_executed_either(make_app, api):
+    app = make_app()
+    api.route("GET", "events/conf27", DRAFT)
+    api.route("PATCH", "events/conf27", {**DRAFT, "live": True})
+    action_id = (await call(app, "publish_event", event="conf27"))["pending_action_id"]
+    app.pending.decide(action_id, "approved")
+
+    narrowed = make_app(MCP_TOOL_ALLOWLIST="list_events,execute_pending_action")
+    with pytest.raises(ApprovalError, match="no longer enabled"):
+        await call(narrowed, "execute_pending_action", pending_action_id=action_id)
+    assert api.sent("PATCH", "events/conf27") == []
+
+
+async def test_an_unexpected_failure_is_still_audited(app, api):
+    """A write that failed for a reason nobody anticipated is the one an operator most needs
+    to find in the log. The audit used to cover four exception types and miss the rest."""
+    api.route("GET", "events/conf27", DRAFT)
+
+    def boom(_):
+        raise RuntimeError("something nobody planned for")
+
+    api.route_fn("PATCH", "events/conf27", boom)
+    with pytest.raises(Exception, match="something nobody planned for|could not reach"):
+        await call(app, "update_event", event="conf27", location="Wien")
+
+    log = app.cfg.audit_log.read_text()
+    assert '"failed"' in log and '"update_event"' in log
+
+
 async def test_read_calls_are_not_audited(app, api):
     api.route("GET", "events/conf27", DRAFT)
     await call(app, "get_event", event="conf27")

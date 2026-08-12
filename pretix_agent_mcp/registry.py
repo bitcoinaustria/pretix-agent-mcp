@@ -33,7 +33,7 @@ from .audit import Audit
 from .config import Config
 from .pending import ApprovalError, PendingStore
 from .pretix import Pretix, PretixError
-from .redact import redact, redact_args
+from .redact import redact, redact_args, scrub_text
 from .validate import ValidationError, price, prices, slug
 
 CAPABILITIES = ("read", "write", "write:high-risk")
@@ -240,7 +240,7 @@ async def _execute(
                 args=kwargs,
                 outcome=type(exc).__name__,
                 pending_action_id=action_id,
-                error=str(exc),
+                error=scrub_text(str(exc)),
             )
         raise
     payload = result if isinstance(result, dict) else {"result": result}

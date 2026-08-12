@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pretix_agent_mcp.redact import mask_email, mask_name, mask_phone, redact, redact_args
+from pretix_agent_mcp.redact import mask_email, mask_name, mask_phone, redact, redact_args, scrub_text
 
 ORDER = {
     "code": "ABC12",
@@ -88,3 +88,24 @@ def test_audit_args_are_always_redacted():
 def test_unknown_personal_looking_keys_inside_a_name_container_are_masked():
     out = redact({"attendee_name_parts": {"middle_name": "Anna", "salutation": "Dr"}})
     assert "Anna" not in repr(out)
+
+
+def test_free_text_addresses_are_masked_by_shape():
+    """Key-based masking cannot reach into an error string, so scrub_text works on shape.
+    This is the path a pretix validation error takes on its way into the agent's context."""
+    text = 'pretix API error 400: {"email": ["anna.schmid@example.com is already registered"]}'
+    out = scrub_text(text)
+    assert "anna.schmid@example.com" not in out
+    assert "a***@example.com" in out
+    assert "already registered" in out, "the useful part of the error must survive"
+
+
+def test_scrubbing_leaves_ordinary_text_alone():
+    assert scrub_text("quota 3 is sold out; order ABC12 expires 2027-06-01") == (
+        "quota 3 is sold out; order ABC12 expires 2027-06-01"
+    )
+
+
+def test_every_address_in_a_body_is_masked_not_just_the_first():
+    out = scrub_text("a@x.example.org and b@y.example.org both exist")
+    assert "a@x.example.org" not in out and "b@y.example.org" not in out

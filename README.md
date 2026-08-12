@@ -31,7 +31,7 @@ provider onboarding, which involves credentials an agent must never touch.
 
 | Threat | Mitigation |
 |---|---|
-| Prompt-injected agent exfiltrating personal data | `PII_MODE=redacted` by default: names, emails, addresses and phone numbers are masked in every result. A deployment decision, never a tool parameter. |
+| Prompt-injected agent exfiltrating personal data | `PII_MODE=redacted` by default: names, emails, addresses and phone numbers are masked in every result, and email addresses are scrubbed from pretix error bodies before they reach the agent. A deployment decision, never a tool parameter. |
 | Prompt-injected agent issuing destructive writes | Irreversible operations return a preview and a handle. A human approves them **out of band** on the server. A `confirm: true` parameter would just be set by the attacker. |
 | Agent reaching beyond its remit | Capability allowlist; disabled tools are not advertised at all. The organizer slug is pinned in config. Every path segment is validated. **There is no generic HTTP/API tool.** |
 | Unauthorized network client | Bearer token required, constant-time compared. Binds `127.0.0.1` by default; refuses a non-localhost bind without a token. |

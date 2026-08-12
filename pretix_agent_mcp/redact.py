@@ -12,6 +12,7 @@ and passes through if it does not.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Keys whose values are masked in `redacted` mode, matched case-insensitively against
@@ -131,6 +132,21 @@ def _pii_kind(key: str, value: Any) -> str:
     if key in PHONE_KEYS:
         return "phone"
     return "name"
+
+
+# Free text that never went through a pretix field name: an API error body. The key-based
+# masking above cannot help there, so addresses are found by shape instead.
+EMAIL_IN_TEXT = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def scrub_text(text: str) -> str:
+    """Mask email addresses anywhere in free text.
+
+    pretix quotes the offending value in some validation errors, and those error bodies are
+    echoed to the agent to explain what went wrong. Always on, in either PII mode: an error
+    message is never the place a deployment needs a real address.
+    """
+    return EMAIL_IN_TEXT.sub(lambda match: mask_email(match.group()), text)
 
 
 def redact_args(args: dict[str, Any]) -> dict[str, Any]:

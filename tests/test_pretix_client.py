@@ -81,3 +81,15 @@ async def test_an_error_body_is_truncated(api):
     with pytest.raises(PretixError) as exc:
         await client(api).get("events", "conf27")
     assert len(exc.value.detail) <= 800
+
+
+async def test_an_error_body_cannot_carry_pii_into_the_agents_context(api):
+    """pretix quotes the offending value in some validation errors. The body is echoed to
+    the agent to explain the failure, so it is scrubbed on the way out — redaction elsewhere
+    is key-based and would never see inside an error string."""
+    api.route("GET", "events/conf27", {"email": ["anna.schmid@example.com is registered"]}, status=400)
+    with pytest.raises(PretixError) as exc:
+        await client(api).get("events", "conf27")
+    assert "anna.schmid@example.com" not in str(exc.value)
+    assert "anna.schmid@example.com" not in exc.value.detail
+    assert "is registered" in exc.value.detail

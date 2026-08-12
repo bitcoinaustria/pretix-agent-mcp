@@ -16,10 +16,12 @@ from typing import Any
 
 import httpx
 
+from .redact import scrub_text
 from .validate import path_segments
 
 # pretix error bodies are echoed back to the agent (they explain what was wrong with
-# the request) but truncated — an event settings dump would otherwise flood the context.
+# the request) but truncated — an event settings dump would otherwise flood the context —
+# and scrubbed, because a validation error can quote the value that caused it.
 MAX_ERROR_CHARS = 800
 
 # Rate-limit retries. Three attempts covers a burst against pretix Hosted's per-minute
@@ -162,7 +164,9 @@ def _detail(response: httpx.Response) -> str:
         body = response.text
     text = body if isinstance(body, str) else _stringify(body)
     text = " ".join(text.split())
-    return text[:MAX_ERROR_CHARS] or response.reason_phrase
+    # The body reaches the agent's context, so it is scrubbed like any other result. Key-based
+    # redaction cannot reach into an error string, hence the by-shape pass.
+    return scrub_text(text[:MAX_ERROR_CHARS]) or response.reason_phrase
 
 
 def _stringify(body: Any) -> str:

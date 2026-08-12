@@ -57,7 +57,9 @@ pending action's state in SQLite, and a later `execute_pending_action` call clai
   personal, so a pretix field nobody has seen yet is masked if it is called
   `attendee_email` and passes through if it is called `price`. A bare `name` is treated as
   an object label unless the record also carries personal fields — masking every event and
-  product name made results useless.
+  product name made results useless. Because that cannot reach inside a free-text string,
+  pretix error bodies get a second, shape-based pass (`scrub_text`) before an agent sees the
+  error explaining what it did wrong.
 - **Amounts are validated before the approval ceremony, not inside the tool.** A tool
   declares its priced parameters in `money=(...)` and the registry checks them in the same
   place it normalizes `event`. The reason is the ordering: a high-risk or live-escalated

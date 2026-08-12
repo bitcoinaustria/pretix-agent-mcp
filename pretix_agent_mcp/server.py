@@ -82,6 +82,7 @@ class BearerAuth:
     """Require ``Authorization: Bearer <token>`` on every HTTP request."""
 
     def __init__(self, asgi_app: Any, token: str) -> None:
+        self.inner = asgi_app  # the Starlette app, whose lifespan starts the MCP session manager
         self._app = asgi_app
         self._token = token
 

@@ -11,6 +11,7 @@ and never into a return value, an exception message or a log record.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -20,6 +21,12 @@ from .validate import path_segments
 # pretix error bodies are echoed back to the agent (they explain what was wrong with
 # the request) but truncated — an event settings dump would otherwise flood the context.
 MAX_ERROR_CHARS = 800
+
+# Rate-limit retries. Three attempts covers a burst against pretix Hosted's per-minute
+# window without turning a sustained 429 into a hung tool call.
+# ponytail: fixed attempts, no jitter or circuit breaker until a real deployment needs one.
+MAX_ATTEMPTS = 3
+MAX_RETRY_WAIT = 30.0
 
 
 class PretixError(RuntimeError):
@@ -74,11 +81,18 @@ class Pretix:
         json: Any = None,
     ) -> Any:
         url = self._url(segments)
-        try:
-            response = await self._client.request(method, url, params=params, json=json)
-        except httpx.HTTPError as exc:
-            # Never interpolate the client (its headers hold the token) into the message.
-            raise PretixError(0, f"could not reach pretix: {type(exc).__name__}") from None
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                response = await self._client.request(method, url, params=params, json=json)
+            except httpx.HTTPError as exc:
+                # Never interpolate the client (its headers hold the token) into the message.
+                raise PretixError(0, f"could not reach pretix: {type(exc).__name__}") from None
+            if response.status_code != 429 or attempt == MAX_ATTEMPTS - 1:
+                break
+            # pretix Hosted rate-limits to 360 requests/minute per organizer and documents
+            # a 429 as safe to retry: the request was refused, not processed. Self-hosted
+            # instances do not rate-limit by default, so this path stays dormant there.
+            await asyncio.sleep(_retry_after(response))
         if response.status_code >= 400:
             raise PretixError(response.status_code, _detail(response))
         if response.status_code == 204 or not response.content:
@@ -130,6 +144,15 @@ class Pretix:
                 return collected[:cap], total, False
             page += 1
         return collected[:cap], total, True
+
+
+def _retry_after(response: httpx.Response) -> float:
+    """Seconds to wait, from the ``Retry-After`` header pretix sends with a 429."""
+    try:
+        wait = float(response.headers.get("retry-after", ""))
+    except ValueError:
+        wait = 1.0
+    return min(max(wait, 0.0), MAX_RETRY_WAIT)
 
 
 def _detail(response: httpx.Response) -> str:

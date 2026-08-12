@@ -109,6 +109,29 @@ bearer token applies:
 pretix-agent-mcp serve --transport stdio
 ```
 
+## pretix Hosted (pretix.eu) or self-hosted
+
+Both work — it is the same documented REST API. For pretix Hosted set:
+
+```bash
+PRETIX_BASE_URL=https://pretix.eu
+```
+
+Two hosted-specific things to know:
+
+- **Rate limits.** pretix Hosted allows 360 requests per minute per organizer for
+  token authentication and answers a 429 with `Retry-After`; self-hosted instances do not
+  rate-limit by default. The client honours `Retry-After` and retries up to three times,
+  so a burst degrades into a slower call rather than an error. `sales_summary` is the tool
+  most likely to hit the limit on a big event (one request per 100 orders scanned) — lower
+  `SALES_SCAN_CAP`, or ask pretix support for a higher limit, if you run into it.
+- **Plugins.** `set_event_plugins` can only enable what the instance actually ships;
+  hosted and self-hosted offer different plugin sets. Read the current list with
+  `get_event` first.
+
+Nothing else differs: team tokens, the event and order APIs, and the settings API behave
+the same, and the shop URLs the tools hand back are correct for either.
+
 ## The pretix token
 
 Create a **team** in pretix (Organizer → Teams) with only the permissions your enabled
@@ -241,6 +264,29 @@ location /mcp {
 
 Keep the bind on `127.0.0.1` and let the proxy be the only route in. If you must bind an
 external interface, the server refuses to start without `MCP_BEARER_TOKEN`.
+
+### Alongside a self-hosted pretix container
+
+[docker-compose.example.yml](docker-compose.example.yml) runs this as its **own container**
+next to `pretix/standalone`, reaching pretix over the internal network
+(`PRETIX_BASE_URL=http://pretix:80`).
+
+Do not extend the pretix image to run both in one container, even though `pip install
+pretix-agent-mcp` into a derived image would work. The pretix container holds the database
+credentials, the Django secret key and the ticket data; this one holds an API token limited
+to a restricted team. Separating them is what keeps a compromise of the agent-facing
+service — the component deliberately exposed to an untrusted agent — from becoming a
+compromise of the whole instance, which is the difference between "the attacker can do what
+that token allows" and "the attacker reads your database". It also keeps `docker pull` an
+upgrade instead of an image rebuild, and keeps pretix's own supervisor config untouched.
+
+Two things to keep in mind for that setup:
+
+- Mount a volume for `/state`. Without it, an approved-but-not-executed action and the
+  whole audit trail vanish on restart.
+- `docker exec` into the MCP container is enough to approve a pending action, so access to
+  the Docker socket is equivalent to approval rights. That is the same trust level as shell
+  access on the host, which is what the out-of-band approval assumes.
 
 Run the server on a different machine from the agent when you can — that is what makes
 "the credential is not on the agent's machine" a structural property rather than a habit.

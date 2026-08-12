@@ -1,0 +1,62 @@
+# pretix-agent-mcp next to a self-hosted pretix, as two containers on one network.
+#
+# Deliberately NOT baked into the pretix image. pretix's container holds the database
+# credentials, the Django secret key and the ticket data; this container holds an API
+# token with a restricted team's permissions. Keeping them apart is what makes a
+# compromise of the agent-facing service stay a compromise of that token, instead of
+# handing over the whole instance. It also keeps `docker pull pretix/standalone` an
+# upgrade rather than an image rebuild.
+#
+# For pretix Hosted (pretix.eu) drop the `pretix` service and set
+# PRETIX_BASE_URL=https://pretix.eu.
+
+services:
+  pretix:
+    image: pretix/standalone:stable
+    restart: unless-stopped
+    command: all
+    # Only the reverse proxy needs to reach the shop; nothing here is published to 0.0.0.0.
+    ports:
+      - "127.0.0.1:8345:80"
+    volumes:
+      - ./pretix-data:/data
+      - ./pretix.cfg:/etc/pretix/pretix.cfg:ro
+    depends_on: [db, redis]
+
+  agent-mcp:
+    image: ghcr.io/bitcoinaustria/pretix-agent-mcp:latest # or: build: .
+    restart: unless-stopped
+    environment:
+      # Reached over the internal network — the MCP server needs no public pretix URL.
+      PRETIX_BASE_URL: http://pretix:80
+      PRETIX_API_TOKEN: ${PRETIX_API_TOKEN:?set this in .env}
+      PRETIX_ORGANIZER: ${PRETIX_ORGANIZER:?set this in .env}
+      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:?set this in .env}
+      MCP_CAPABILITIES: read
+      PII_MODE: redacted
+      MCP_HOST: 0.0.0.0 # inside the container only, see `ports` below
+    ports:
+      # Localhost only. Terminate TLS in a reverse proxy in front of this.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # The audit log and the pending-approval database. Without this volume an
+      # approved-but-not-executed action disappears on restart — and so does the audit trail.
+      - ./mcp-state:/state
+    # `docker compose exec agent-mcp pretix-agent-mcp pending` / `approve <id>` is the
+    # approval surface. Note that exec into this container is enough to approve, so treat
+    # docker socket access as equivalent to approval rights.
+    depends_on: [pretix]
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pretix
+      POSTGRES_USER: pretix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set this in .env}
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: unless-stopped

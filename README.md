@@ -71,6 +71,44 @@ Check what a configuration exposes before pointing an agent at it:
 pretix-agent-mcp tools
 ```
 
+## Connecting a client
+
+Endpoint: `https://pretix-mcp.example.org/mcp` (streamable HTTP), with your
+`MCP_BEARER_TOKEN`. No bridge or proxy is needed — Codex and Claude Code both speak
+streamable HTTP with a bearer token directly.
+
+**Codex CLI** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.pretix]
+url = "https://pretix-mcp.example.org/mcp"
+bearer_token_env_var = "PRETIX_MCP_TOKEN"   # Codex stores the variable NAME, reads it at connect time
+tool_timeout_sec = 60                       # sales_summary can be slow on large events
+```
+
+Then `export PRETIX_MCP_TOKEN=...` in the shell that launches Codex, or use the CLI:
+
+```bash
+codex mcp add pretix --url https://pretix-mcp.example.org/mcp --bearer-token-env-var PRETIX_MCP_TOKEN
+```
+
+Gotchas: the key is `url` (there is no `http_url` and no `type = "http"` — transport is
+inferred); `bearer_token` is rejected at load in favour of `bearer_token_env_var`; static
+headers go in `http_headers = { ... }` and cannot be set from `codex mcp add`.
+
+**Claude Code**:
+
+```bash
+claude mcp add --transport http pretix https://pretix-mcp.example.org/mcp --header "Authorization: Bearer $PRETIX_MCP_TOKEN"
+```
+
+**Same-machine development** uses stdio, where the parent process is the peer and no
+bearer token applies:
+
+```bash
+pretix-agent-mcp serve --transport stdio
+```
+
 ## The pretix token
 
 Create a **team** in pretix (Organizer → Teams) with only the permissions your enabled

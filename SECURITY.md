@@ -2,12 +2,16 @@
 
 ## Reporting a vulnerability
 
-Email **security@bitcoin-austria.at** with a description, affected version or commit,
-and a reproduction if you have one. Please do not open a public issue for anything
-exploitable. We aim to acknowledge within 72 hours.
+Open a
+[private security advisory](https://github.com/bitcoinaustria/pretix-agent-mcp/security/advisories/new)
+with a description, the affected version or commit, and a reproduction if you have one.
+Please do not open a public issue for anything exploitable. We aim to acknowledge within
+72 hours.
 
-If you prefer GitHub, use a
-[private security advisory](https://github.com/bitcoinaustria/pretix-agent-mcp/security/advisories/new).
+<!-- Maintainers: add a monitored security email address here if you prefer email reports. -->
+
+Please include which of the mitigations below you got past — that is usually the fastest
+way for us to see the impact.
 
 ## What this project defends against
 

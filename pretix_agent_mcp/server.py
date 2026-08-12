@@ -83,15 +83,20 @@ class BearerAuth:
 
     def __init__(self, asgi_app: Any, token: str) -> None:
         self.inner = asgi_app  # the Starlette app, whose lifespan starts the MCP session manager
-        self._app = asgi_app
-        self._token = token
+        # Compared as bytes: secrets.compare_digest raises TypeError on a non-ASCII str, which
+        # would turn an unauthenticated request into a 500 with a traceback instead of a 401.
+        self._token = token.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self._app(scope, receive, send)
+        if scope["type"] == "lifespan":
+            await self.inner(scope, receive, send)
+            return
+        if scope["type"] != "http":  # no websocket routes exist; do not pass one through unchecked
             return
         scheme, _, token = Headers(scope=scope).get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not secrets.compare_digest(token.strip(), self._token):
+        if scheme.lower() != "bearer" or not secrets.compare_digest(
+            token.strip().encode("utf-8", "surrogatepass"), self._token
+        ):
             response = JSONResponse(
                 {"error": "unauthorized"},
                 status_code=401,
@@ -99,7 +104,7 @@ class BearerAuth:
             )
             await response(scope, receive, send)
             return
-        await self._app(scope, receive, send)
+        await self.inner(scope, receive, send)
 
 
 def http_app(app: App) -> Any:

@@ -8,6 +8,7 @@ headers) against the real ASGI app, so they cover the auth middleware as deploye
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import pytest
@@ -32,8 +33,8 @@ def rpc(method: str, params: dict | None = None) -> dict:
     return {"jsonrpc": "2.0", "id": 1, "method": method, "params": body}
 
 
-def headers(method: str, token: str | None, name: str | None = None) -> dict[str, str]:
-    out = {
+def headers(method: str, token: str | bytes | None, name: str | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {
         "content-type": "application/json",
         "accept": "application/json, text/event-stream",
         "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
@@ -42,7 +43,9 @@ def headers(method: str, token: str | None, name: str | None = None) -> dict[str
     if name:
         out["mcp-name"] = name
     if token is not None:
-        out["authorization"] = f"Bearer {token}"
+        # bytes go on the wire untouched, which is the only way to test a header that is not
+        # ASCII — starlette decodes raw header bytes as latin-1, producing a non-ASCII str.
+        out["authorization"] = b"Bearer " + token if isinstance(token, bytes) else f"Bearer {token}"
     return out
 
 
@@ -81,6 +84,20 @@ async def test_token_in_query_string_is_not_accepted(app):
     """The spec forbids the token in the URL; we only ever read the header."""
     async with serve(app, url_suffix=f"?access_token={BEARER}") as post:
         response = await post("tools/list", token=None)
+    assert response.status_code == 401
+
+
+async def test_a_non_ascii_token_gets_401_not_a_traceback(app):
+    """secrets.compare_digest raises TypeError on a non-ASCII str, which turned an
+    unauthenticated request into a 500 with a traceback. Comparison happens on bytes."""
+    async with serve(app) as post:
+        response = await post("tools/list", token="ünïcode-tökén-long-enough".encode())
+    assert response.status_code == 401
+
+
+async def test_an_empty_authorization_header_gets_401(app):
+    async with serve(app) as post:
+        response = await post("tools/list", token="")
     assert response.status_code == 401
 
 

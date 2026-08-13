@@ -36,6 +36,9 @@ class Config:
     mcp_bearer_token: str | None = None
     host: str = "127.0.0.1"
     port: int = 8765
+    # Host headers the DNS-rebinding check accepts on top of the bind address: the public
+    # hostname a reverse proxy forwards. "*" disables the check.
+    allowed_hosts: list[str] = field(default_factory=list)
     log_level: str = "info"
     audit_log: Path = Path("audit.jsonl")
     state_db: Path = Path("pending-actions.sqlite3")
@@ -125,6 +128,7 @@ def load(env: dict[str, str] | None = None, config_file: str | Path | None = Non
         pii_mode=pii_mode,
         mcp_bearer_token=get("MCP_BEARER_TOKEN"),
         host=get("MCP_HOST") or "127.0.0.1",
+        allowed_hosts=get_list("MCP_ALLOWED_HOSTS"),
         port=int(get("MCP_PORT") or 8765),
         log_level=(get("LOG_LEVEL") or "info").lower(),
         audit_log=Path(get("AUDIT_LOG") or "audit.jsonl"),

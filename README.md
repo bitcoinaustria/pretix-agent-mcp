@@ -72,6 +72,54 @@ Check what a configuration exposes before pointing an agent at it:
 pretix-agent-mcp tools
 ```
 
+## Deployment: keep it off the public internet
+
+The authentication here is one static bearer token. There is no OAuth, no rate limiting, no
+lockout after failed attempts, and no anomaly detection — and behind that token sits an API
+that can refund money. So the recommended deployment is **not reachable from the internet at
+all**, which is also less work than the alternative:
+
+**Private network (recommended).** Bind `127.0.0.1` and reach it over WireGuard, Tailscale
+or an SSH tunnel. Nothing is exposed, the bearer token becomes a second factor rather than
+the only one, and there is no TLS to terminate:
+
+```bash
+# on your laptop — the agent then talks to http://127.0.0.1:8765/mcp
+ssh -N -L 8765:127.0.0.1:8765 you@your-server
+```
+
+**Public HTTPS**, if you need it (a hosted agent, a phone). Terminate TLS in a reverse proxy,
+keep the bind on localhost, and **name the public hostname in `MCP_ALLOWED_HOSTS`** — the MCP
+SDK validates the `Host` header against the bind address, so a proxy forwarding
+`pretix-mcp.example.org` gets `421 Misdirected Request` until you list it:
+
+```nginx
+# nginx — proxy_set_header Host $host is the default and is what needs MCP_ALLOWED_HOSTS
+location /mcp {
+    proxy_pass http://127.0.0.1:8765;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_buffering off;                 # streamable HTTP responses are streamed
+    proxy_read_timeout 300s;             # sales_summary is slow on large events
+    limit_req zone=mcp burst=20 nodelay; # the rate limit this server does not have
+}
+```
+
+```caddy
+pretix-mcp.example.org {
+    reverse_proxy 127.0.0.1:8765 {
+        flush_interval -1                # do not buffer streamed responses
+    }
+}
+```
+
+With `MCP_ALLOWED_HOSTS=pretix-mcp.example.org`. Add the rate limit in the proxy: this server
+has none, and a static bearer token with no throttle is a bearer token you can brute-force.
+
+Whichever you pick, `MCP_HOST` stays `127.0.0.1` — the proxy or the tunnel is what listens
+publicly. The server refuses to bind anything else without a token at all, but a bind of
+`0.0.0.0` also turns the `Host` check off, so prefer localhost plus `MCP_ALLOWED_HOSTS`.
+
 ## Connecting a client
 
 Endpoint: `https://pretix-mcp.example.org/mcp` (streamable HTTP), with your
@@ -257,6 +305,7 @@ with comments in [.env.example](.env.example).
 | `PRETIX_ORGANIZER` | — | Organizer slug, pinned; agents cannot change it |
 | `PRETIX_EVENT_ALLOWLIST` | all events | Comma-separated event slugs |
 | `MCP_BEARER_TOKEN` | — | Client credential (≥ 24 chars). Required for HTTP |
+| `MCP_ALLOWED_HOSTS` | bind address | Extra `Host` values to accept — **required behind a reverse proxy**; `*` disables the check |
 | `MCP_CAPABILITIES` | `read` | `read`, `write`, `write:high-risk` |
 | `MCP_TOOL_ALLOWLIST` | — | Expose exactly these tools |
 | `MCP_AUTO_APPROVE` | — | High-risk tools reclassified to `write` |
@@ -267,25 +316,7 @@ with comments in [.env.example](.env.example).
 | `APPROVAL_TTL_SECONDS` | `900` | How long a proposal stays approvable |
 | `SALES_SCAN_CAP` | `5000` | `sales_summary` scan window |
 
-## Deployment
-
-Put TLS in front of it. Nginx:
-
-```nginx
-location /mcp {
-    proxy_pass http://127.0.0.1:8765/mcp;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_buffering off;              # streamable HTTP may hold the response open
-    proxy_read_timeout 300s;
-}
-```
-
-Keep the bind on `127.0.0.1` and let the proxy be the only route in. If you must bind an
-external interface, the server refuses to start without `MCP_BEARER_TOKEN`.
-
-### Alongside a self-hosted pretix container
+## Running alongside pretix
 
 [docker-compose.example.yml](docker-compose.example.yml) runs this as its **own container**
 next to `pretix/standalone`, reaching pretix over the internal network

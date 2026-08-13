@@ -20,6 +20,7 @@ from typing import Any
 
 from mcp.server.caching import CacheHint
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import Receive, Scope, Send
@@ -107,11 +108,32 @@ class BearerAuth:
         await self.inner(scope, receive, send)
 
 
+def transport_security(cfg: Config) -> TransportSecuritySettings:
+    """Which ``Host`` headers the SDK's DNS-rebinding protection accepts.
+
+    The protection defaults to the bind address, which breaks the deployment this project
+    recommends: bind ``127.0.0.1``, put a reverse proxy in front, and nginx or Caddy forwards
+    the public hostname — which the server then answers with 421 Misdirected Request. Naming
+    the hostname in ``MCP_ALLOWED_HOSTS`` is the fix. Setting it to ``*`` turns the check off
+    for operators who terminate it in the proxy instead.
+    """
+    hosts = list(cfg.allowed_hosts)
+    if "*" in hosts:
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    # The bind address stays valid, so a local client and a health check keep working.
+    for host in (cfg.host, f"{cfg.host}:{cfg.port}"):
+        if host not in hosts:
+            hosts.append(host)
+    return TransportSecuritySettings(allowed_hosts=hosts, allowed_origins=hosts)
+
+
 def http_app(app: App) -> Any:
     """The authenticated ASGI app. Nothing is reachable without the bearer token."""
     check_http_bind(app.cfg)
     assert app.cfg.mcp_bearer_token  # check_http_bind guarantees this
-    inner = build_server(app).streamable_http_app(stateless_http=True, host=app.cfg.host)
+    inner = build_server(app).streamable_http_app(
+        stateless_http=True, host=app.cfg.host, transport_security=transport_security(app.cfg)
+    )
     return BearerAuth(inner, app.cfg.mcp_bearer_token)
 
 

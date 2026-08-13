@@ -57,10 +57,18 @@ async def serve(app, *, url_suffix: str = ""):
         transport = httpx.ASGITransport(app=asgi)
         async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as http:
 
-            async def post(method: str, params: dict | None = None, *, token: str | None = BEARER, name=None):
-                return await http.post(
-                    f"/mcp{url_suffix}", json=rpc(method, params), headers=headers(method, token, name)
-                )
+            async def post(
+                method: str,
+                params: dict | None = None,
+                *,
+                token: str | None = BEARER,
+                name=None,
+                host: str | None = None,
+            ):
+                sent = headers(method, token, name)
+                if host:  # what nginx/Caddy forward by default
+                    sent["host"] = host
+                return await http.post(f"/mcp{url_suffix}", json=rpc(method, params), headers=sent)
 
             yield post
 
@@ -139,3 +147,38 @@ async def test_server_refuses_non_localhost_bind_without_token(make_config):
 async def test_short_bearer_token_is_refused(make_config):
     with pytest.raises(ConfigError, match="at least 24"):
         check_http_bind(make_config(MCP_BEARER_TOKEN="short"))
+
+
+async def test_a_proxied_hostname_is_rejected_until_it_is_named(make_app, api):
+    """The deployment this project recommends — bind 127.0.0.1, reverse proxy in front —
+    fails without this: nginx and Caddy forward the public Host by default, and the SDK's
+    DNS-rebinding protection answers 421 Misdirected Request."""
+    async with serve(make_app()) as post:
+        blocked = await post("tools/list", host="pretix-mcp.example.org")
+    assert blocked.status_code == 421
+
+    async with serve(make_app(MCP_ALLOWED_HOSTS="pretix-mcp.example.org")) as post:
+        allowed = await post("tools/list", host="pretix-mcp.example.org")
+    assert allowed.status_code == 200, allowed.text
+    assert "list_events" in allowed.text
+
+
+async def test_the_bind_address_keeps_working_when_a_hostname_is_named(make_app, api):
+    """Naming the proxy's hostname must not lock out a local client or a health check."""
+    async with serve(make_app(MCP_ALLOWED_HOSTS="pretix-mcp.example.org")) as post:
+        response = await post("tools/list")
+    assert response.status_code == 200
+
+
+async def test_a_wildcard_turns_the_check_off(make_app, api):
+    """For operators who terminate Host validation in the proxy instead."""
+    async with serve(make_app(MCP_ALLOWED_HOSTS="*")) as post:
+        response = await post("tools/list", host="anything.example.net")
+    assert response.status_code == 200
+
+
+async def test_the_bearer_token_is_still_required_behind_a_proxy(make_app, api):
+    """A named hostname is not an authorization: 401 comes first."""
+    async with serve(make_app(MCP_ALLOWED_HOSTS="pretix-mcp.example.org")) as post:
+        response = await post("tools/list", token=None, host="pretix-mcp.example.org")
+    assert response.status_code == 401

@@ -35,6 +35,9 @@ services:
       MCP_CAPABILITIES: read
       PII_MODE: redacted
       MCP_HOST: 0.0.0.0 # inside the container only, see `ports` below
+      # A 0.0.0.0 bind also turns the SDK's Host check off. Behind a reverse proxy, name the
+      # public hostname instead so the check keeps working:
+      # MCP_ALLOWED_HOSTS: pretix-mcp.example.org
     ports:
       # Localhost only. Terminate TLS in a reverse proxy in front of this.
       - "127.0.0.1:8765:8765"

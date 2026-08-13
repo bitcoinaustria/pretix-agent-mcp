@@ -98,6 +98,9 @@ Out of scope — documented behaviour, not bugs:
   a rate limit, so granting `write` on a live event is a decision to trust the agent with
   repetition; the audit log is the control that makes it reviewable. A *single* call that
   reaches further than its tool intends is in scope.
+- **Brute force against `MCP_BEARER_TOKEN`.** There is no throttle in this server; a rate
+  limit belongs in the reverse proxy, and a private network removes the need for one. A
+  *bypass* of the token check is in scope; guessing a 24+ character token is not a finding.
 - Anything in a third-party dependency: report it upstream.
 
 ## Security-relevant code
@@ -118,6 +121,11 @@ These carry tests, and changes to them need tests in the same PR — see
 
 ## Deployment expectations
 
+- **Prefer a private network to a public endpoint.** Authentication is one static bearer
+  token: no OAuth, no rate limiting, no lockout, no anomaly detection. Reaching the server
+  over WireGuard, Tailscale or an SSH tunnel removes the public attack surface entirely and
+  is less work than hardening a public one. If you do expose it, terminate TLS in a reverse
+  proxy, rate-limit there, and name the hostname in `MCP_ALLOWED_HOSTS`.
 - Terminate TLS in front of the server; do not expose plain HTTP off-host.
 - Use a **restricted pretix team token** with the least permissions your enabled
   capabilities need (see the table in the [README](README.md#the-pretix-token)). Never a

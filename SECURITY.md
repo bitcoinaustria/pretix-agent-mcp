@@ -124,7 +124,8 @@ These carry tests, and changes to them need tests in the same PR — see
 - **Prefer a private network to a public endpoint.** Authentication is one static bearer
   token: no OAuth, no rate limiting, no lockout, no anomaly detection. Reaching the server
   over WireGuard, Tailscale or an SSH tunnel removes the public attack surface entirely and
-  is less work than hardening a public one. If you do expose it, terminate TLS in a reverse
+  is less work than hardening a public one. `tailscale serve` (tailnet-only) is fine;
+  `tailscale funnel` is the public internet and gives up the property this bullet is about. If you do expose it, terminate TLS in a reverse
   proxy, rate-limit there, and name the hostname in `MCP_ALLOWED_HOSTS`.
 - Terminate TLS in front of the server; do not expose plain HTTP off-host.
 - Use a **restricted pretix team token** with the least permissions your enabled

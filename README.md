@@ -88,6 +88,53 @@ the only one, and there is no TLS to terminate:
 ssh -N -L 8765:127.0.0.1:8765 you@your-server
 ```
 
+### Tailscale
+
+The shortest safe path, and the one this was tested on. `tailscale serve` publishes the
+server on the machine's MagicDNS name with a real certificate, reachable **from your tailnet
+only** — no open port, no proxy config, no TLS to renew:
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8765
+# → https://<machine>.<tailnet>.ts.net/mcp
+```
+
+Serve forwards the `ts.net` name as the `Host` header, so name it or every request is
+`421 Misdirected Request`:
+
+```bash
+MCP_ALLOWED_HOSTS=<machine>.<tailnet>.ts.net
+```
+
+Then point the client at the `ts.net` URL:
+
+```bash
+claude mcp add --transport http pretix https://<machine>.<tailnet>.ts.net/mcp \
+  --header "Authorization: Bearer $PRETIX_MCP_TOKEN"
+```
+
+**Use `serve`, not `funnel`.** Funnel puts the endpoint on the public internet, which means a
+static bearer token with no rate limit facing the whole web — the thing this section exists
+to avoid. It does not buy you a claude.ai connector either: that needs OAuth, which this
+server does not implement.
+
+**Approving over Tailscale SSH.** The approval step needs a shell on the server, which
+Tailscale SSH gives you without distributing keys — from a laptop or a phone, with tailnet
+ACLs deciding who may:
+
+```bash
+ssh you@<machine>.<tailnet>.ts.net 'cd /srv/pretix-agent-mcp && pretix-agent-mcp pending'
+ssh you@<machine>.<tailnet>.ts.net 'cd /srv/pretix-agent-mcp && pretix-agent-mcp approve 3f9a1c'
+```
+
+An ACL `checkPeriod` on that rule makes approving a refund require a fresh device check,
+which is a better fit for the ceremony than a long-lived shell.
+
+Not implemented, but worth knowing: `tailscale serve` injects `Tailscale-User-Login` and
+friends, so the audit log could attribute a call to a tailnet identity instead of only "the
+bearer token". Those headers are trustworthy only while the bind stays on `127.0.0.1`, where
+nothing but `tailscaled` can reach the server — a client on an exposed port could forge them.
+
 **Public HTTPS**, if you need it (a hosted agent, a phone). Terminate TLS in a reverse proxy,
 keep the bind on localhost, and **name the public hostname in `MCP_ALLOWED_HOSTS`** — the MCP
 SDK validates the `Host` header against the bind address, so a proxy forwarding

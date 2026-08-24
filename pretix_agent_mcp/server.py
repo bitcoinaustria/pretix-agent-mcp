@@ -111,11 +111,10 @@ class BearerAuth:
 def transport_security(cfg: Config) -> TransportSecuritySettings:
     """Which ``Host`` headers the SDK's DNS-rebinding protection accepts.
 
-    The protection defaults to the bind address, which breaks the deployment this project
-    recommends: bind ``127.0.0.1``, put a reverse proxy in front, and nginx or Caddy forwards
-    the public hostname — which the server then answers with 421 Misdirected Request. Naming
-    the hostname in ``MCP_ALLOWED_HOSTS`` is the fix. Setting it to ``*`` turns the check off
-    for operators who terminate it in the proxy instead.
+    The protection defaults to the bind address. Tailscale Serve forwards the machine's
+    MagicDNS hostname, so the supported production deployment names that exact host in
+    ``MCP_ALLOWED_HOSTS``. ``*`` is retained as a backwards-compatible escape hatch, but it
+    disables the check and is not supported for production.
     """
     hosts = list(cfg.allowed_hosts)
     if "*" in hosts:

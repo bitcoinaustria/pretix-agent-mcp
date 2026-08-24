@@ -25,7 +25,8 @@ All of this with:
 ```text
 Codex / AI agent          (untrusted: may be manipulated via prompt injection)
         │
-        │ MCP over streamable HTTP + bearer token   ── or stdio for same-machine dev
+        │ MCP streamable HTTP over Tailscale Serve + bearer
+        │ ── or stdio for same-machine development
         ▼
 pretix-agent-mcp          (trusted: holds credential, enforces capabilities,
         │                  redacts PII, gates high-risk writes)
@@ -40,8 +41,8 @@ Threat model, in priority order:
    issuing destructive writes). Mitigations: PII redaction by default, capability
    allowlist, out-of-band approval for high-risk writes.
 2. **Unauthorized network client** reaching the MCP endpoint. Mitigations: bearer
-   auth required on HTTP transport, bind to localhost by default, TLS via reverse
-   proxy documented as the deployment norm.
+   auth required on HTTP transport, bind to localhost by default, and tailnet-only
+   HTTPS through Tailscale Serve as the production deployment norm.
 3. **Credential theft.** Mitigations: token only in server-side env/config, never
    in tool results, logs, errors, or the repo.
 
@@ -325,12 +326,18 @@ operations log at debug level only.
 
 - Fully self-hostable: single binary or `docker run` with env vars. No
   third-party hosted MCP provider involved.
+- Production access is tailnet-only through Tailscale Serve. Tailscale Funnel,
+  public port publishing, and public reverse-proxy deployment are outside the
+  supported security model; the bearer token remains required behind Tailscale.
 - Designed to run on a separate machine from the agent, so the agent cannot
   reach the credential via filesystem or environment.
+- Runs as a separate process/container, not as a pretix plugin. This preserves
+  the restricted team token as a second enforcement layer and keeps agent-facing
+  code out of the pretix process that holds database credentials and secrets.
 - Defaults are closed: binds `127.0.0.1`, `read` capabilities only,
   `PII_MODE=redacted`, no writes. Each relaxation is an explicit config change.
-- README documents: reverse-proxy TLS setup, creating the restricted pretix
-  team + token with minimal permissions, and Codex client configuration.
+- README documents: Tailscale Serve and Tailscale SSH setup, creating the
+  restricted pretix team + token with minimal permissions, and client configuration.
 
 ## Open source hygiene
 

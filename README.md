@@ -6,7 +6,7 @@ pretix API token ever reaching the agent, and without giving it arbitrary REST a
 ```text
 Codex / AI agent          untrusted: may be manipulated via prompt injection
         │
-        │ MCP over streamable HTTP + bearer token   (or stdio for same-machine dev)
+        │ MCP streamable HTTP over Tailscale Serve + bearer   (or stdio for dev)
         ▼
 pretix-agent-mcp          trusted: holds the credential, enforces capabilities,
         │                 masks personal data, gates irreversible writes
@@ -72,120 +72,79 @@ Check what a configuration exposes before pointing an agent at it:
 pretix-agent-mcp tools
 ```
 
-## Deployment: keep it off the public internet
+## Production deployment: Tailscale only
 
-The authentication here is one static bearer token. There is no OAuth, no rate limiting, no
-lockout after failed attempts, and no anomaly detection — and behind that token sits an API
-that can refund money. So the recommended deployment is **not reachable from the internet at
-all**, which is also less work than the alternative:
+The supported production endpoint is `tailscale serve`: tailnet-only HTTPS in front of a
+localhost listener. The MCP bearer token stays required as a second authorization layer. Do
+not expose this server directly, through Tailscale Funnel, or through a public reverse proxy:
+it has one static bearer token and deliberately has no OAuth, rate limiting, lockout, or
+anomaly detection.
 
-**Private network (recommended).** Bind `127.0.0.1` and reach it over WireGuard, Tailscale
-or an SSH tunnel. Nothing is exposed, the bearer token becomes a second factor rather than
-the only one, and there is no TLS to terminate:
-
-```bash
-# on your laptop — the agent then talks to http://127.0.0.1:8765/mcp
-ssh -N -L 8765:127.0.0.1:8765 you@your-server
-```
-
-### Tailscale
-
-The shortest safe path, and the one this was tested on. `tailscale serve` publishes the
-server on the machine's MagicDNS name with a real certificate, reachable **from your tailnet
-only** — no open port, no proxy config, no TLS to renew:
+Keep a native server bound to its `127.0.0.1` default. With Docker, bind `0.0.0.0` only
+inside the container and publish it to host loopback, as the install command and
+[docker-compose.example.yml](docker-compose.example.yml) do. Then publish that loopback
+listener to the tailnet:
 
 ```bash
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8765
-# → https://<machine>.<tailnet>.ts.net/mcp
+# → https://mcp-host.example-tailnet.ts.net/mcp
 ```
 
-Serve reaches the server with the `ts.net` name in the `Host` header, so name it or every
-request is `421 Misdirected Request`:
+Serve forwards the `ts.net` name in the `Host` header, so configure that exact MagicDNS
+hostname or every request is `421 Misdirected Request`:
 
 ```bash
-MCP_ALLOWED_HOSTS=<machine>.<tailnet>.ts.net
+MCP_ALLOWED_HOSTS=mcp-host.example-tailnet.ts.net
 ```
+
+Replace the example with the machine's MagicDNS name. The supported production topology
+requires that exact host. `*` remains a backwards-compatible escape hatch, but disables the
+SDK's DNS-rebinding protection and is not supported for production.
 
 If a 421 does happen, the server log names the exact value it refused
-(`Invalid Host header: …`) — copy that into `MCP_ALLOWED_HOSTS`. That applies to any proxy,
-not just Tailscale.
+(`Invalid Host header: …`) — copy that into `MCP_ALLOWED_HOSTS` and restart the MCP server.
 
-Then point the client at the `ts.net` URL:
-
-```bash
-claude mcp add --transport http pretix https://<machine>.<tailnet>.ts.net/mcp \
-  --header "Authorization: Bearer $PRETIX_MCP_TOKEN"
-```
-
-**Use `serve`, not `funnel`.** Funnel puts the endpoint on the public internet, which means a
-static bearer token with no rate limit facing the whole web — the thing this section exists
-to avoid. It does not buy you a claude.ai connector either: that needs OAuth, which this
-server does not implement.
-
-**Approving over Tailscale SSH.** The approval step needs a shell on the server, which
-Tailscale SSH gives you without distributing keys — from a laptop or a phone, with tailnet
-ACLs deciding who may:
+**Approving over Tailscale SSH.** Enable Tailscale SSH once on the MCP host:
 
 ```bash
-ssh you@<machine>.<tailnet>.ts.net 'cd /srv/pretix-agent-mcp && pretix-agent-mcp pending'
-ssh you@<machine>.<tailnet>.ts.net 'cd /srv/pretix-agent-mcp && pretix-agent-mcp approve 3f9a1c'
+sudo tailscale set --ssh
 ```
 
-An ACL `checkPeriod` on that rule makes approving a refund require a fresh device check,
-which is a better fit for the ceremony than a long-lived shell.
+The [tailnet policy must allow both network and SSH
+access](https://tailscale.com/docs/features/tailscale-ssh#ensure-tailscale-ssh-is-permitted-in-access-control-policies)
+from the approving identity to this host. Use an SSH rule with `action: check`. On plans
+that support a [custom check
+period](https://tailscale.com/docs/reference/syntax/policy-file#checkperiod), set
+`checkPeriod: always` to require fresh identity-provider authentication for every approval
+connection; otherwise Tailscale's default check period applies. Then approve from a laptop
+or phone without distributing SSH keys:
 
-Not implemented, but worth knowing: serve injects `Tailscale-User-Login`,
-`Tailscale-User-Name` and `Tailscale-User-Profile-Pic`, so the audit log could attribute a
-call to a tailnet identity instead of only "the bearer token". Three caveats if you build on
-that. They are trustworthy only while the bind stays on `127.0.0.1`, where nothing but
-`tailscaled` can reach the server — a client on an exposed port could forge them. They are
-**not populated for tagged devices**, which is how most always-on servers are authorised, so
-an agent running on a tagged host would produce no identity at all. And Funnel does not send
-them, which is one more reason the public path is the worse one.
-
-**Public HTTPS**, if you need it (a hosted agent, a phone). Terminate TLS in a reverse proxy,
-keep the bind on localhost, and **name the public hostname in `MCP_ALLOWED_HOSTS`** — the MCP
-SDK validates the `Host` header against the bind address, so a proxy forwarding
-`pretix-mcp.example.org` gets `421 Misdirected Request` until you list it:
-
-```nginx
-# nginx — proxy_set_header Host $host is the default and is what needs MCP_ALLOWED_HOSTS
-location /mcp {
-    proxy_pass http://127.0.0.1:8765;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_buffering off;                 # streamable HTTP responses are streamed
-    proxy_read_timeout 300s;             # sales_summary is slow on large events
-    limit_req zone=mcp burst=20 nodelay; # the rate limit this server does not have
-}
+```bash
+ssh you@mcp-host.example-tailnet.ts.net \
+  'cd /srv/pretix-agent-mcp && docker compose exec -T agent-mcp pretix-agent-mcp pending'
+ssh you@mcp-host.example-tailnet.ts.net \
+  'cd /srv/pretix-agent-mcp && docker compose exec -T agent-mcp pretix-agent-mcp approve 3f9a1c'
 ```
 
-```caddy
-pretix-mcp.example.org {
-    reverse_proxy 127.0.0.1:8765 {
-        flush_interval -1                # do not buffer streamed responses
-    }
-}
-```
+Replace the example hostname and `you` with your MagicDNS name and server user. For a native
+deployment, run the same CLI commands after loading its server-side environment.
 
-With `MCP_ALLOWED_HOSTS=pretix-mcp.example.org`. Add the rate limit in the proxy: this server
-has none, and a static bearer token with no throttle is a bearer token you can brute-force.
-
-Whichever you pick, `MCP_HOST` stays `127.0.0.1` — the proxy or the tunnel is what listens
-publicly. The server refuses to bind anything else without a token at all, but a bind of
-`0.0.0.0` also turns the `Host` check off, so prefer localhost plus `MCP_ALLOWED_HOSTS`.
+The bearer token remains mandatory behind Tailscale as a second authorization layer. Use
+`serve`, never `funnel`. A hosted agent that cannot join the tailnet needs a future
+OAuth-capable deployment; a public static-token endpoint is outside this project's supported
+production model.
 
 ## Connecting a client
 
-Endpoint: `https://pretix-mcp.example.org/mcp` (streamable HTTP), with your
+Endpoint: `https://mcp-host.example-tailnet.ts.net/mcp` (streamable HTTP), with your
 `MCP_BEARER_TOKEN`. No bridge or proxy is needed — Codex and Claude Code both speak
-streamable HTTP with a bearer token directly.
+streamable HTTP with a bearer token directly. Replace the example with your MagicDNS name.
 
 **Codex CLI** (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.pretix]
-url = "https://pretix-mcp.example.org/mcp"
+url = "https://mcp-host.example-tailnet.ts.net/mcp"
 bearer_token_env_var = "PRETIX_MCP_TOKEN"   # Codex stores the variable NAME, reads it at connect time
 tool_timeout_sec = 60                       # sales_summary can be slow on large events
 ```
@@ -193,7 +152,7 @@ tool_timeout_sec = 60                       # sales_summary can be slow on large
 Then `export PRETIX_MCP_TOKEN=...` in the shell that launches Codex, or use the CLI:
 
 ```bash
-codex mcp add pretix --url https://pretix-mcp.example.org/mcp --bearer-token-env-var PRETIX_MCP_TOKEN
+codex mcp add pretix --url https://mcp-host.example-tailnet.ts.net/mcp --bearer-token-env-var PRETIX_MCP_TOKEN
 ```
 
 Gotchas: the key is `url` (there is no `http_url` and no `type = "http"` — transport is
@@ -203,7 +162,8 @@ headers go in `http_headers = { ... }` and cannot be set from `codex mcp add`.
 **Claude Code**:
 
 ```bash
-claude mcp add --transport http pretix https://pretix-mcp.example.org/mcp --header "Authorization: Bearer $PRETIX_MCP_TOKEN"
+claude mcp add --transport http pretix https://mcp-host.example-tailnet.ts.net/mcp \
+  --header "Authorization: Bearer $PRETIX_MCP_TOKEN"
 ```
 
 **Same-machine development** uses stdio, where the parent process is the peer and no
@@ -360,7 +320,7 @@ with comments in [.env.example](.env.example).
 | `PRETIX_ORGANIZER` | — | Organizer slug, pinned; agents cannot change it |
 | `PRETIX_EVENT_ALLOWLIST` | all events | Comma-separated event slugs |
 | `MCP_BEARER_TOKEN` | — | Client credential (≥ 24 chars). Required for HTTP |
-| `MCP_ALLOWED_HOSTS` | bind address | Extra `Host` values to accept — **required behind a reverse proxy**; `*` disables the check |
+| `MCP_ALLOWED_HOSTS` | bind address | Extra `Host` values to accept — set the Tailscale MagicDNS hostname for production |
 | `MCP_CAPABILITIES` | `read` | `read`, `write`, `write:high-risk` |
 | `MCP_TOOL_ALLOWLIST` | — | Expose exactly these tools |
 | `MCP_AUTO_APPROVE` | — | High-risk tools reclassified to `write` |
@@ -385,6 +345,12 @@ service — the component deliberately exposed to an untrusted agent — from be
 compromise of the whole instance, which is the difference between "the attacker can do what
 that token allows" and "the attacker reads your database". It also keeps `docker pull` an
 upgrade instead of an image rebuild, and keeps pretix's own supervisor config untouched.
+
+For the same reason, this is deliberately not a pretix plugin. Plugin code runs inside the
+ticketing application with its database credentials and secrets; the sidecar limits a
+compromise to the restricted team's API permissions and keeps the documented REST API as
+the compatibility seam. A future optional plugin may add operator UI, but must not host the
+MCP tools or approval authority.
 
 Two things to keep in mind for that setup:
 

@@ -54,8 +54,8 @@ In priority order:
    that decides which tools exist at all, and out-of-band human approval for irreversible
    writes (a `confirm: true` parameter would be set by the attacker).
 2. **An unauthorized network client** reaching the MCP endpoint. Mitigations: bearer token
-   required on the HTTP transport, `127.0.0.1` bind by default, TLS terminated by a reverse
-   proxy as the documented deployment.
+   required on the HTTP transport, `127.0.0.1` bind by default, and tailnet-only HTTPS through
+   Tailscale Serve as the supported production deployment.
 3. **Credential theft.** The pretix API token exists only in the server's environment. It is
    never returned through MCP, never written to logs or audit records, never accepted as a
    tool parameter, and never needed on the machine running the agent.
@@ -99,8 +99,9 @@ Out of scope — documented behaviour, not bugs:
   repetition; the audit log is the control that makes it reviewable. A *single* call that
   reaches further than its tool intends is in scope.
 - **Brute force against `MCP_BEARER_TOKEN`.** There is no throttle in this server; a rate
-  limit belongs in the reverse proxy, and a private network removes the need for one. A
-  *bypass* of the token check is in scope; guessing a 24+ character token is not a finding.
+  limit belongs outside it, and the supported tailnet-only deployment removes the public
+  attack surface. A *bypass* of the token check is in scope; guessing a 24+ character token
+  is not a finding.
 - Anything in a third-party dependency: report it upstream.
 
 ## Security-relevant code
@@ -121,18 +122,19 @@ These carry tests, and changes to them need tests in the same PR — see
 
 ## Deployment expectations
 
-- **Prefer a private network to a public endpoint.** Authentication is one static bearer
-  token: no OAuth, no rate limiting, no lockout, no anomaly detection. Reaching the server
-  over WireGuard, Tailscale or an SSH tunnel removes the public attack surface entirely and
-  is less work than hardening a public one. `tailscale serve` (tailnet-only) is fine;
-  `tailscale funnel` is the public internet and gives up the property this bullet is about. If you do expose it, terminate TLS in a reverse
-  proxy, rate-limit there, and name the hostname in `MCP_ALLOWED_HOSTS`.
-- Terminate TLS in front of the server; do not expose plain HTTP off-host.
+- **Use Tailscale Serve for production.** Keep the MCP listener on host loopback and expose
+  it only as tailnet-restricted HTTPS. Keep the bearer token as a second authorization layer
+  and name the MagicDNS hostname in `MCP_ALLOWED_HOSTS`.
+- Do not use Tailscale Funnel, publish the container port to `0.0.0.0`, or put the endpoint
+  behind a public reverse proxy. The server has no OAuth, rate limiting, lockout, or anomaly
+  detection; public static-token deployment is outside the supported security model.
 - Use a **restricted pretix team token** with the least permissions your enabled
   capabilities need (see the table in the [README](README.md#the-pretix-token)). Never a
   token from a team that can change teams and permissions.
 - Run the server on a different machine from the agent when you can, so the agent cannot
   reach the credential through the filesystem or the environment. If you run it beside a
   self-hosted pretix, keep it in its own container — not baked into the pretix image.
+- Keep the approval database and audit log on persistent storage, and keep approval on the
+  trusted host through local shell or Tailscale SSH.
 - Keep `PII_MODE=redacted` unless you have decided, deliberately, that this deployment's
   agent context may hold customer data.

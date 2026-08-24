@@ -36,8 +36,9 @@ class Config:
     mcp_bearer_token: str | None = None
     host: str = "127.0.0.1"
     port: int = 8765
-    # Host headers the DNS-rebinding check accepts on top of the bind address: the public
-    # hostname a reverse proxy forwards. "*" disables the check.
+    # Host headers the DNS-rebinding check accepts on top of the bind address. Production
+    # names the MagicDNS hostname forwarded by Tailscale Serve. "*" is an unsupported
+    # escape hatch that disables the check.
     allowed_hosts: list[str] = field(default_factory=list)
     log_level: str = "info"
     audit_log: Path = Path("audit.jsonl")
@@ -158,5 +159,7 @@ def check_http_bind(cfg: Config) -> None:
                 "Set a bearer token, or bind 127.0.0.1 for local-only use."
             )
         raise ConfigError("MCP_BEARER_TOKEN is required for the HTTP transport")
+    if cfg.mcp_bearer_token.lower().startswith("replace-me"):
+        raise ConfigError("MCP_BEARER_TOKEN must be replaced with a generated value")
     if len(cfg.mcp_bearer_token) < 24:
         raise ConfigError("MCP_BEARER_TOKEN must be at least 24 characters")

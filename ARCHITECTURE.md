@@ -71,6 +71,11 @@ pending action's state in SQLite, and a later `execute_pending_action` call clai
   it.
 - **SQLite, not a file or memory.** Approvals must survive a restart, and the conditional
   UPDATE gives at-most-once execution without a lock.
+- **A sidecar, not a pretix plugin.** The restricted team token bounds the MCP service's
+  authority and the documented REST API is the compatibility seam. A plugin would move the
+  agent-facing endpoint into the ticketing process that holds database credentials and
+  application secrets. An optional plugin may add operator UI later, but must not host tools
+  or approval authority.
 
 ## What is deliberately absent
 

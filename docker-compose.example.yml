@@ -7,8 +7,8 @@
 # handing over the whole instance. It also keeps `docker pull pretix/standalone` an
 # upgrade rather than an image rebuild.
 #
-# For pretix Hosted (pretix.eu) drop the `pretix` service and set
-# PRETIX_BASE_URL=https://pretix.eu.
+# Tailscale Serve runs on the host and proxies the tailnet-only HTTPS endpoint to
+# 127.0.0.1:8765. Do not publish the MCP port on a non-loopback address.
 
 services:
   pretix:
@@ -35,11 +35,10 @@ services:
       MCP_CAPABILITIES: read
       PII_MODE: redacted
       MCP_HOST: 0.0.0.0 # inside the container only, see `ports` below
-      # A 0.0.0.0 bind also turns the SDK's Host check off. Behind a reverse proxy, name the
-      # public hostname instead so the check keeps working:
-      # MCP_ALLOWED_HOSTS: pretix-mcp.example.org
+      # Tailscale Serve forwards this Host header. Set it to the exact MagicDNS hostname.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:?set this to machine.tailnet.ts.net}
     ports:
-      # Localhost only. Terminate TLS in a reverse proxy in front of this.
+      # Localhost only. Tailscale Serve on the host is the production ingress.
       - "127.0.0.1:8765:8765"
     volumes:
       # The audit log and the pending-approval database. Without this volume an

@@ -14,6 +14,6 @@ ENV MCP_HOST=0.0.0.0 \
 EXPOSE 8765
 
 # Configuration comes from the environment; nothing secret is baked into the image.
-# Publish the port to 127.0.0.1 only and put TLS in front of it.
+# Publish the port to 127.0.0.1 only; Tailscale Serve on the host is the production ingress.
 ENTRYPOINT ["pretix-agent-mcp"]
 CMD ["serve"]

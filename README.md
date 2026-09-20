@@ -384,7 +384,8 @@ Diagnostics go to stderr; writes go to the audit log.
 ## Audit log
 
 One JSONL record per write and per high-risk lifecycle event (proposed / approved /
-executed / failed), with the tool, PII-redacted arguments, outcome and pending-action id.
+rejected / executed / failed), with the tool, PII-redacted arguments, outcome and
+pending-action id.
 Reads are not logged. Neither token ever appears.
 
 ```json

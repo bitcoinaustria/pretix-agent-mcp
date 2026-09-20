@@ -150,6 +150,21 @@ async def test_lifecycle_is_audited(app, api, monkeypatch):
     assert app.cfg.mcp_bearer_token not in log
 
 
+async def test_a_rejection_is_audited(app, api, monkeypatch):
+    """A refusal is as much a human decision as an approval. Without its own record, a
+    rejected proposal reads in the log like one nobody ever decided."""
+    api.route("GET", "events/conf27", DRAFT)
+    action_id = (await call(app, "publish_event", event="conf27"))["pending_action_id"]
+    monkeypatch.setattr("pretix_agent_mcp.cli.load", lambda config_file=None: app.cfg)
+    monkeypatch.setattr("pretix_agent_mcp.cli.build_app", lambda cfg: app)
+    assert main(["reject", action_id]) == 0
+
+    assert app.pending.get(action_id).state == "rejected"
+    log = app.cfg.audit_log.read_text()
+    assert '"rejected"' in log and action_id in log
+    assert app.cfg.pretix_api_token not in log
+
+
 async def test_an_approval_does_not_outlive_the_capability_that_allowed_it(make_app, api):
     """An approval authorises one action under the configuration in force at the time. The
     operator's panic move is to withdraw the capability; a stale approval must not be a way
